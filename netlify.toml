@@ -1,0 +1,8 @@
+# Netlify 배포 설정.
+#
+# Netlify 에서 "Add new site > Import an existing project" 로 이 repo 를 고르면
+# 빌드 없이 site/ 디렉터리를 그대로 서빙한다. site/index.html 은 외부 리소스가 없는
+# 단일 파일이며 `python3 tools/build_report.py` 로 만들어 커밋한다.
+
+[build]
+  publish = "site"

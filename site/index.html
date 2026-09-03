@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ConvLSTM · SimVP · PredRNN-V2 비교</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-other: #898781;
+  --ref: #52514e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-other: #898781;
+    --ref: #c3c2b7;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 32px 20px 64px;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Apple SD Gothic Neo", "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+}
+main { max-width: 1100px; margin: 0 auto; }
+h1 { font-size: 26px; line-height: 1.3; margin: 0 0 8px; letter-spacing: -0.01em; }
+h2 { font-size: 19px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h3 { font-size: 16px; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.meta { color: var(--text-secondary); font-size: 13px; margin: 0; }
+.lead { color: var(--text-secondary); }
+section { margin-top: 32px; }
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+.section-head { margin-bottom: 12px; }
+.section-head p { margin: 4px 0 0; color: var(--text-secondary); font-size: 13px; }
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 20px;
+  margin: 16px 0 0;
+}
+.summary div { border-top: 1px solid var(--border); padding-top: 8px; }
+.summary dt { color: var(--text-secondary); font-size: 12px; margin: 0; }
+.summary dd { margin: 2px 0 0; font-size: 15px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 14px; }
+caption { caption-side: bottom; text-align: left; color: var(--muted); font-size: 12px; padding-top: 8px; }
+th, td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+tbody th { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+th:first-child, td:first-child { text-align: left; }
+tbody td { font-variant-numeric: tabular-nums; }
+tbody tr:last-child td, tbody tr:last-child th { border-bottom: none; }
+.name { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.empty { color: var(--muted); font-style: normal; }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+.chart { margin: 0; }
+.chart figcaption { color: var(--text-secondary); font-size: 13px; margin: 0 0 8px; }
+.chart-scroll { overflow-x: auto; }
+.chart-scroll svg { width: 100%; min-width: 460px; height: auto; display: block; margin: 0 auto; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.card-head .tag { color: var(--text-secondary); font-size: 12px; }
+figure { margin: 0 0 16px; }
+figure img { width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-1); }
+figure figcaption { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
+.placeholder {
+  border: 1px dashed var(--axis);
+  border-radius: 8px;
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; margin: 0; }
+.kv dt { color: var(--text-secondary); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+.kv-title { color: var(--text-secondary); font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
+.notes { margin: 0; padding-left: 20px; color: var(--text-secondary); font-size: 14px; }
+.notes li { margin-bottom: 6px; }
+footer { margin-top: 40px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<main><header><h1>ConvLSTM · SimVP · PredRNN-V2 비교</h1><p class="meta">GK2A AMI sw038 다음 프레임 예측 · 결과 0/3개 · 결과 없음 · 생성 시각 2026-09-03T12:35:07+09:00</p></header><section><div class="section-head"><h2>1. 데이터 요약</h2><p>세 모델이 공유하는 입력 데이터와 분할</p></div><p class="lead">결과 없음 — 데이터 요약을 만들 metrics.json 이 없다.</p></section><section><div class="section-head"><h2>2. 핵심 비교</h2><p>학습 비용과 검증·전체 프레임 성능</p></div><div class="table-wrap"><table><caption>MAE 는 낮을수록, SSIM 은 높을수록 좋다. 값은 정규화된 밝기 기준이며 '전체 프레임' 은 250×250 원본 해상도 1스텝 예측이다.</caption><thead><tr><th scope="col">모델</th><th scope="col">파라미터</th><th scope="col">학습 epoch</th><th scope="col">초/epoch</th><th scope="col">val MAE</th><th scope="col">val SSIM</th><th scope="col">전체 프레임 MAE</th><th scope="col">전체 프레임 SSIM</th><th scope="col">Persistence 대비 MAE 개선</th><th scope="col">GPU</th></tr></thead><tbody><tr><th scope="row"><span class="name"><span class="swatch" style="background: var(--series-1)"></span>ConvLSTM</span></th><td class="empty" colspan="9">결과 없음</td></tr><tr><th scope="row"><span class="name"><span class="swatch" style="background: var(--series-2)"></span>SimVP</span></th><td class="empty" colspan="9">결과 없음</td></tr><tr><th scope="row"><span class="name"><span class="swatch" style="background: var(--series-3)"></span>PredRNN-V2</span></th><td class="empty" colspan="9">결과 없음</td></tr></tbody></table></div></section><section><div class="section-head"><h2>3. 검증 지표 비교</h2><p>점선은 Persistence 베이스라인 기준선이다</p></div><div class="chart-grid"><figure class="chart"><figcaption>검증 MAE — 낮을수록 좋다</figcaption><div class="chart-scroll"><svg viewBox="0 0 560 216" role="img" preserveAspectRatio="xMinYMin meet" style="max-width: 560px"><title>모델별 검증 MAE</title><line x1="110.00" y1="14.00" x2="110.00" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="110.00" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0</text><line x1="198.21" y1="14.00" x2="198.21" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="198.21" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.25</text><line x1="286.42" y1="14.00" x2="286.42" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="286.42" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.50</text><line x1="374.62" y1="14.00" x2="374.62" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="374.62" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.75</text><line x1="462.83" y1="14.00" x2="462.83" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="462.83" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">1.00</text><line x1="110.00" y1="14.00" x2="110.00" y2="152.00" stroke="var(--axis)" stroke-width="1" /><text x="297.00" y="186.00" text-anchor="middle" font-size="12" fill="var(--text-secondary)">검증 MAE (낮을수록 좋다)</text><text x="98.00" y="37.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">ConvLSTM</text><text x="120.00" y="37.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="98.00" y="83.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">SimVP</text><text x="120.00" y="83.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="98.00" y="129.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">PredRNN-V2</text><text x="120.00" y="129.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="110.00" y="208.00" font-size="12" fill="var(--muted)">Persistence 기준선 —</text></svg></div></figure><figure class="chart"><figcaption>검증 SSIM — 높을수록 좋다</figcaption><div class="chart-scroll"><svg viewBox="0 0 560 216" role="img" preserveAspectRatio="xMinYMin meet" style="max-width: 560px"><title>모델별 검증 SSIM</title><line x1="110.00" y1="14.00" x2="110.00" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="110.00" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0</text><line x1="198.21" y1="14.00" x2="198.21" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="198.21" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.25</text><line x1="286.42" y1="14.00" x2="286.42" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="286.42" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.50</text><line x1="374.62" y1="14.00" x2="374.62" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="374.62" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">0.75</text><line x1="462.83" y1="14.00" x2="462.83" y2="152.00" stroke="var(--grid)" stroke-width="1" /><text x="462.83" y="169.00" text-anchor="middle" font-size="11" fill="var(--muted)">1.00</text><line x1="110.00" y1="14.00" x2="110.00" y2="152.00" stroke="var(--axis)" stroke-width="1" /><text x="297.00" y="186.00" text-anchor="middle" font-size="12" fill="var(--text-secondary)">검증 SSIM (높을수록 좋다)</text><text x="98.00" y="37.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">ConvLSTM</text><text x="120.00" y="37.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="98.00" y="83.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">SimVP</text><text x="120.00" y="83.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="98.00" y="129.00" text-anchor="end" dominant-baseline="central" font-size="13" fill="var(--text-primary)">PredRNN-V2</text><text x="120.00" y="129.00" dominant-baseline="central" font-size="12" fill="var(--muted)">결과 없음</text><text x="110.00" y="208.00" font-size="12" fill="var(--muted)">Persistence 기준선 —</text></svg></div></figure></div></section><section><div class="section-head"><h2>4. 학습 곡선</h2><p>epoch 별 학습·검증 손실 (축 하나)</p></div><figure class="chart"><div class="chart-scroll"><svg viewBox="0 0 900 96" role="img" preserveAspectRatio="xMinYMin meet" style="max-width: 900px"><title>모델별 epoch 손실 곡선</title><text x="450.00" y="52" text-anchor="middle" font-size="13" fill="var(--muted)">결과 없음</text></svg></div></figure></section><section><div class="section-head"><h2>5. 모델별 결과</h2><p>전체 프레임 예측, 학습 곡선, 실행 환경</p></div><div class="cards"><article class="card"><div class="card-head"><h3><span class="name"><span class="swatch" style="background: var(--series-1)"></span>ConvLSTM</span></h3><span class="tag">결과 없음</span></div><p class="lead">결과 없음 — `results/ConvLSTM/metrics.json` 이 없다. 해당 모델 스크립트를 실행한 뒤 리포트를 다시 만들면 채워진다.</p></article><article class="card"><div class="card-head"><h3><span class="name"><span class="swatch" style="background: var(--series-2)"></span>SimVP</span></h3><span class="tag">결과 없음</span></div><p class="lead">결과 없음 — `results/SimVP/metrics.json` 이 없다. 해당 모델 스크립트를 실행한 뒤 리포트를 다시 만들면 채워진다.</p></article><article class="card"><div class="card-head"><h3><span class="name"><span class="swatch" style="background: var(--series-3)"></span>PredRNN-V2</span></h3><span class="tag">결과 없음</span></div><p class="lead">결과 없음 — `results/PredRNN_V2/metrics.json` 이 없다. 해당 모델 스크립트를 실행한 뒤 리포트를 다시 만들면 채워진다.</p></article></div></section><section><div class="section-head"><h2>6. 데이터 그림</h2><p>모델과 무관한 공통 데이터 그림</p></div><div class="chart-grid"><figure><div class="placeholder">그림 없음</div><figcaption>입력 시퀀스와 정답 샘플</figcaption></figure><figure><div class="placeholder">그림 없음</div><figcaption>시간대별 평균 밝기</figcaption></figure></div></section><section><div class="section-head"><h2>7. 방법론</h2><p>비교가 공정한 이유</p></div><ul class="notes"><li>세 모델 모두 같은 프레임 캐시·같은 시간 분할(앞 구간 학습, 뒤 구간 검증)·같은 정규화 범위(gmin~gmax)를 쓴다. 분할과 정규화는 공통 모듈에서만 정의한다.</li><li>출력은 residual head 다: 예측 = 마지막 입력 프레임 + Δ. 모델은 Δ 만 학습한다.</li><li>손실은 세 모델 공통으로 0.5·MAE + 0.5·(1 − SSIM) 이며, 혼합 정밀도에서도 Δ 와 출력은 float32 로 계산한다.</li><li>Persistence 베이스라인은 &#x27;다음 프레임 = 마지막 입력 프레임&#x27; 이다. 같은 검증 표본에서 계산하므로 모델 값과 직접 비교할 수 있고, 차트의 점선 기준선이 그 값이다.</li><li>MAE 개선율 = (Persistence MAE − 모델 MAE) / Persistence MAE × 100.</li><li>MAE·SSIM 은 정규화된 밝기 기준이며, 전체 프레임 지표는 250×250 원본 해상도로 옮긴 가중치로 1스텝 예측해 계산한다.</li></ul></section><footer>외부 리소스 없이 생성된 단일 HTML · tools/build_report.py · 2026-09-03T12:35:07+09:00</footer></main>
+</body>
+</html>

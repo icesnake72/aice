@@ -48,8 +48,11 @@
    - 시간 attention: `(B, T, N, D)` → `(B*N, T, D)` 로 접어 self-attention → 되돌림.
    - MLP: `Dense(DIM*MLP_RATIO, gelu) → Dense(DIM)`.
    - 각 서브레이어 앞에 `LayerNormalization`, 뒤에 residual add. 접기/펼치기는 `tf.reshape` + `tf.shape(x)[0]` 를 쓰는 커스텀 Layer(`compute_output_shape` 포함)로 만든다. `Lambda` 금지.
-5. **Readout**: 마지막 시점 토큰 `(B, N, DIM)` → `LayerNormalization` → `Dense(PATCH*PATCH*READOUT_CH)` (`READOUT_CH = 8`) → `(B, Hp, Wp, PATCH*PATCH*READOUT_CH)` → `DepthToSpace(PATCH)` (tf.nn.depth_to_space 래퍼) → `(B, h_p, w_p, READOUT_CH)` → `Cropping2D` 로 `(B, h, w, READOUT_CH)` → `delta_readout(kernel_size=1)` (float32, zero-init) → `residual_head`.
-   > 주의(2026-09-04 실측): readout 입력이 1채널이면 zero-init `delta_readout` 이 스칼라 gain 하나가 되어 gradient 부호가 배치마다 뒤집히고 0 근처에 머문다. 본체의 나머지 변수는 gradient 가 정확히 0 이라 4 epoch 동안 loss 가 평평했다(val MAE 0.00625 = Persistence). 다른 세 모델처럼 readout 입력을 다채널(8)로 두어야 학습이 시작된다.
+5. **Readout (hybrid conv head, 2026-09-04 최종)**:
+   - transformer 경로: 마지막 시점 토큰 `(B, N, DIM)` → `LayerNormalization` → `Dense(PATCH*PATCH*READOUT_CH)` (`READOUT_CH = 8`) → `(B, Hp, Wp, PATCH*PATCH*READOUT_CH)` → `DepthToSpace(PATCH)` → `Cropping2D` → `feat_tf (B, h, w, READOUT_CH)`.
+   - 입력 skip 경로(픽셀 해상도): 입력 마지막 프레임 `x_last (B, h, w, 1)` (`make_take_last_frame_layer`) → `Conv2D(READOUT_CH, 3, padding="same", activation="gelu")` → `feat_in (B, h, w, READOUT_CH)`.
+   - `Concatenate([feat_tf, feat_in])` → `Conv2D(HEAD_CH, 3, padding="same", activation="gelu")` (`HEAD_CH = 16`) → `delta_readout(kernel_size=1)` (**zero-init, `init_std=0.0`**) → `residual_head`.
+   > 실측 기록(2026-09-04): (1) readout 입력 1채널 → gain 이 0 근처에서 요동해 본체 gradient 0, loss 평평. (2) 8채널화 → 여전히 평평. (3) `delta_readout` 을 std 0.01/0.05 난수로 초기화 → 본체는 움직이지만 Δ 를 도로 0 으로 줄이며 같은 loss 바닥(0.0318, hours 6–11 3 epoch)에 수렴. 결론: 8×8 패치 토큰의 선형 투영만으로는 픽셀 단위 국소 Δ 를 표현할 수 없다. 다른 세 모델처럼 픽셀 해상도의 입력 특징을 conv head 로 합쳐야 Δ 가 입력 국소 구조와 정렬되고 zero-init 에서도 gain 이 자란다. `nc_pipeline.delta_readout` 의 `init_std` 인자는 남기되 기본값 0 을 쓴다.
 6. `compile_model(model, lr)`.
 
 파라미터 규모 추정: 블록당 약 4·DIM²(공간) + 4·DIM²(시간) + 8·DIM²(MLP) ≈ 262k → DEPTH 4 ≈ 1.05M + embedding. 리포트에 실측 `count_params()` 를 적는다.

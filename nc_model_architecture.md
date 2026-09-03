@@ -1,13 +1,14 @@
 # GK2A 다음-프레임 예측 모델 구조
 
-`nc_predict.ipynb` 의 `build_model()` 신경망 구조 시각화 문서.
+`ConvLSTM_prediction.ipynb` 의 `build_model()` 신경망 구조 시각화 문서.
 ConvLSTM 기반 **잔차(residual) + SSIM 손실** 모델이다.
 
 - 입력: 과거 4프레임 시퀀스 `(4, H, W, 1)`
 - 출력: 다음 1프레임 `(H, W, 1)`
 - 총 파라미터: **28,497**
 - 손실: `0.5 · MAE + 0.5 · (1 - SSIM)`
-- fully-conv 라 학습은 96×96 패치, 추론은 300×300 전체 프레임으로 가능
+- fully-conv 라 학습은 96×96 패치, 추론은 250×250 전체 프레임으로 가능 (추론 시 크기 고정 모델을 새로 만들어 가중치 이전)
+- Colab T4 실행용 스크립트 `nc_predict_colab.py` 와 생성 노트북 `ConvLSTM_prediction_colab.ipynb` 도 같은 `build_model()` 을 쓴다
 
 ---
 
@@ -32,7 +33,7 @@ flowchart TB
     L1["ConvLSTM2D(16, 3x3)<br/>return_sequences=True<br/>→ (4, 96, 96, 16)<br/>params 9,856"]
     L2["ConvLSTM2D(16, 3x3)<br/>return_sequences=False<br/>→ (96, 96, 16)<br/>params 18,496"]
     CV["Conv2D(1, 3x3) linear<br/>변화량 Δ 예측<br/>→ (96, 96, 1)<br/>params 145"]
-    LM["Lambda 마지막 프레임 추출<br/>→ (96, 96, 1)"]
+    LM["TakeLastFrame (Layer 상속)<br/>마지막 프레임 추출<br/>→ (96, 96, 1)"]
     ADD["Add<br/>예측 = 마지막 프레임 + Δ<br/>잔차 합치기"]
     OUT["Output<br/>(96, 96, 1)<br/>다음 프레임 예측"]
 
@@ -58,7 +59,7 @@ flowchart TB
 | 1 | `ConvLSTM2D(16)` | (4, 96, 96, 16) | 9,856 | 시간축 따라 공간 패턴 학습, 시퀀스 유지 |
 | 2 | `ConvLSTM2D(16)` | (96, 96, 16) | 18,496 | 시퀀스를 마지막 시점 하나로 압축 |
 | 3 | `Conv2D(1)` linear | (96, 96, 1) | 145 | 변화량 **Δ** 예측 (음수 가능 → 활성화 없음) |
-| 4 | `Lambda t[:,-1]` | (96, 96, 1) | 0 | (skip) 입력의 마지막 프레임만 추출 |
+| 4 | `TakeLastFrame` (`x[:, -1]`) | (96, 96, 1) | 0 | (skip) 입력의 마지막 프레임만 추출 |
 | 5 | `Add` | (96, 96, 1) | 0 | **예측 = 마지막 프레임 + Δ** |
 | | **합계** | | **28,497** | |
 
@@ -90,9 +91,12 @@ Add( 마지막 프레임 , Δ )           ◄┘
 - **잔차 구조(`Add`)**: 신경망은 "다음 프레임 전체"가 아니라 **변화량 Δ만** 학습한다.
   베이스(마지막 프레임)는 그대로 가져오므로 입력의 선명함을 계승 → **예측 흐릿함 완화**.
 - **`Conv2D` activation=None**: Δ 는 음수가 될 수 있어 `sigmoid`/`relu` 가 아닌 **linear**.
-- **`Lambda` + `Add`(Functional API)**: 입력에서 갈래가 나와 끝에서 합쳐지는 Y자 구조라
+- **`TakeLastFrame` + `Add`(Functional API)**: 입력에서 갈래가 나와 끝에서 합쳐지는 Y자 구조라
   `Sequential` 로는 표현 불가. 텐서를 직접 잇는 Functional API 가 필수.
-- **fully-conv (공간 크기 None)**: 96×96 패치로 학습하고도 추론 시 300×300 전체를 한 번에 처리.
+  `Lambda` 대신 `Layer` 상속을 쓴 이유는 Keras 3 에서 동적 shape 추론이 실패하고, 바이트코드 저장이라 이식성이 낮기 때문.
+- **fully-conv**: 96×96 패치로 학습하고도 추론 시 250×250 전체를 한 번에 처리.
+  Keras 3 의 ConvLSTM 은 공간 크기 `None` 을 허용하지 않으므로 `build_model(h=250, w=250)` 으로
+  새로 만들어 `set_weights` 로 가중치를 옮긴다 (커널 공유라 파라미터 수가 같다).
 - **손실 `0.5·MAE + 0.5·(1-SSIM)`**: MAE 로 선명도 유지(평균회귀 억제) + SSIM 으로 구조/엣지 보존.
 
 ---

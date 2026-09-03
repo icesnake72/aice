@@ -21,3 +21,11 @@ env/
 
 # Claude Code 설정
 .claude/
+
+# 위성 원본 데이터 (AWS Open Data 에서 재다운로드 가능)
+resource/netcdf/
+*.nc
+
+# 편집기/에이전트 상태 파일
+.obsidian/
+.omc/

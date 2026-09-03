@@ -8,6 +8,10 @@ Colab 의 '파일 > 노트 업로드' 는 .ipynb 만 받으므로, 두 스크립
   python3 tools/build_colab_notebook.py --model simvp --profile local
   python3 tools/build_colab_notebook.py --all      # 모델 스크립트가 있는 것만 생성
 
+경로
+  --root     nc_pipeline.py 와 모델 스크립트를 찾을 디렉터리 (기본: 저장소 루트)
+  --out-dir  노트북을 만들 디렉터리 (기본: --root 와 같은 곳)
+
 profile
   colab: 경로 기본값이 Drive (COLAB_DATA_DIR/COLAB_OUT_DIR), T4 GPU 메타데이터 포함
   local: 경로 기본값이 저장소 상대경로 (LOCAL_DATA_DIR/LOCAL_OUT_DIR), 가속기 메타데이터 없음
@@ -277,26 +281,42 @@ def _build_one(model: str, profile: str, root: Path, out_dir: Path, out: Path | 
   return True
 
 
+def available_targets(root: Path) -> list[tuple[str, str]]:
+  """--all 대상 중 모델 스크립트가 실제로 있는 조합만 고른다.
+
+  경고는 (모델, profile) 조합마다가 아니라 모델당 한 번만 찍는다.
+  """
+  missing = {m for m, _ in ALL_TARGETS if not (root / MODEL_SPECS[m][0]).is_file()}
+  for m in sorted(missing):
+    logger.warning("모델 스크립트 없음 -> 건너뜀: %s", root / MODEL_SPECS[m][0])
+  return [(m, prof) for m, prof in ALL_TARGETS if m not in missing]
+
+
 def main(argv: list[str] | None = None) -> int:
   """CLI 진입점."""
-  root = Path(__file__).resolve().parents[1]
+  repo_root = Path(__file__).resolve().parents[1]
   p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
   p.add_argument("--model", choices=sorted(MODEL_SPECS), default="convlstm")
   p.add_argument("--profile", choices=PROFILES, default="colab")
   p.add_argument("--all", action="store_true", help="모델 스크립트가 있는 조합을 전부 생성한다")
+  p.add_argument("--root", type=Path, default=repo_root,
+                 help="nc_pipeline.py 와 모델 스크립트를 찾을 디렉터리 (기본: 저장소 루트)")
   p.add_argument("--out", type=Path, default=None, help="출력 .ipynb 경로 (--model 일 때만)")
-  p.add_argument("--out-dir", type=Path, default=root, help="노트북을 만들 디렉터리")
+  p.add_argument("--out-dir", type=Path, default=None,
+                 help="노트북을 만들 디렉터리 (기본: --root 와 같은 곳)")
   a = p.parse_args(argv)
   logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+  out_dir = a.out_dir if a.out_dir is not None else a.root
 
   try:
     if a.all:
       if a.out is not None:
         raise ValueError("--all 과 --out 은 함께 쓸 수 없다.")
-      made = sum(_build_one(m, prof, root, a.out_dir, None) for m, prof in ALL_TARGETS)
+      targets = available_targets(a.root)
+      made = sum(_build_one(m, prof, a.root, out_dir, None) for m, prof in targets)
       logger.info("총 %d개 생성 (%d개 조합 중)", made, len(ALL_TARGETS))
       return 0
-    if not _build_one(a.model, a.profile, root, a.out_dir, a.out):
+    if not _build_one(a.model, a.profile, a.root, out_dir, a.out):
       return 1
     return 0
   except (OSError, ValueError, SyntaxError) as exc:

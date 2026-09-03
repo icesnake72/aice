@@ -7,6 +7,7 @@ TensorFlow 없이 순수 텍스트 변환만 검증한다 (셀은 compile 까지
 
 from __future__ import annotations
 
+import shutil
 import sys
 import tempfile
 import unittest
@@ -24,6 +25,29 @@ CONVLSTM_SRC = ROOT / "nc_predict_colab.py"
 def _code_cells(nb: dict) -> list[str]:
   """노트북의 코드 셀 본문 목록."""
   return ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+
+
+def _fake_root(tmp: Path, models: list[str]) -> Path:
+  """임시 소스 루트를 만든다.
+
+  `--all` 결과가 저장소에 어떤 모델 스크립트가 있는지에 좌우되면 Task 2/3 가
+  파일을 추가하는 순간 테스트가 깨진다. 그래서 소스 루트를 통째로 격리한다.
+  모델 파일은 ConvLSTM 엔트리를 복사해 MODEL_NAME 만 바꾼 것으로 충분하다.
+  """
+  root = tmp / "src"
+  root.mkdir(parents=True, exist_ok=True)
+  shutil.copy2(PIPELINE_SRC, root / "nc_pipeline.py")
+  base = CONVLSTM_SRC.read_text(encoding="utf-8")
+  for model in models:
+    src_name, display = g.MODEL_SPECS[model]
+    (root / src_name).write_text(
+      base.replace('MODEL_NAME = "ConvLSTM"', f'MODEL_NAME = "{display}"'), encoding="utf-8")
+  return root
+
+
+def _built(out_dir: Path) -> list[str]:
+  """out_dir 에 생긴 노트북 파일명 (정렬)."""
+  return sorted(p.name for p in out_dir.glob("*.ipynb"))
 
 
 class StripImportTest(unittest.TestCase):
@@ -139,11 +163,49 @@ class CliTest(unittest.TestCase):
   def test_main_all_skips_missing_model_files(self) -> None:
     """--all 은 없는 모델 스크립트를 건너뛰고 0 을 반환한다."""
     with tempfile.TemporaryDirectory() as d:
-      rc = g.main(["--all", "--out-dir", d])
+      root = _fake_root(Path(d), ["convlstm"])
+      out = Path(d) / "out"
+      rc = g.main(["--all", "--root", str(root), "--out-dir", str(out)])
       self.assertEqual(rc, 0)
-      names = sorted(p.name for p in Path(d).glob("*.ipynb"))
-      # simvp / predrnn_v2 스크립트는 아직 없으므로 건너뛴다
-      self.assertEqual(names, ["ConvLSTM_prediction_colab.ipynb"])
+      self.assertEqual(_built(out), ["ConvLSTM_prediction_colab.ipynb"])
+
+  def test_main_all_builds_every_target_when_sources_exist(self) -> None:
+    """세 모델 스크립트가 모두 있으면 --all 이 5개 조합을 만든다."""
+    with tempfile.TemporaryDirectory() as d:
+      root = _fake_root(Path(d), ["convlstm", "simvp", "predrnn_v2"])
+      out = Path(d) / "out"
+      rc = g.main(["--all", "--root", str(root), "--out-dir", str(out)])
+      self.assertEqual(rc, 0)
+      self.assertEqual(_built(out), [
+        "ConvLSTM_prediction_colab.ipynb",
+        "PredRNN_V2_prediction.ipynb", "PredRNN_V2_prediction_colab.ipynb",
+        "SimVP_prediction.ipynb", "SimVP_prediction_colab.ipynb",
+      ])
+      # ConvLSTM 의 local 은 수작업 노트북이 있어 --all 대상이 아니다
+      self.assertFalse((out / "ConvLSTM_prediction.ipynb").exists())
+
+  def test_all_warns_once_per_missing_model(self) -> None:
+    """없는 모델 경고는 profile 조합마다가 아니라 모델당 한 번만 찍힌다."""
+    with tempfile.TemporaryDirectory() as d:
+      root = _fake_root(Path(d), ["convlstm"])
+      with self.assertLogs(g.logger, level="WARNING") as caught:
+        g.main(["--all", "--root", str(root), "--out-dir", str(Path(d) / "out")])
+      missing = [line for line in caught.output if "모델 스크립트 없음" in line]
+      self.assertEqual(len(missing), 2)   # simvp, predrnn_v2 각각 1번
+
+  def test_main_uses_root_for_out_dir_by_default(self) -> None:
+    """--out-dir 을 안 주면 --root 아래에 만든다 (저장소 루트를 건드리지 않는다)."""
+    with tempfile.TemporaryDirectory() as d:
+      root = _fake_root(Path(d), ["simvp"])
+      rc = g.main(["--model", "simvp", "--profile", "local", "--root", str(root)])
+      self.assertEqual(rc, 0)
+      self.assertEqual(_built(root), ["SimVP_prediction.ipynb"])
+
+  def test_main_reports_failure_for_missing_model_script(self) -> None:
+    """--model 로 지정한 스크립트가 없으면 1 을 반환한다."""
+    with tempfile.TemporaryDirectory() as d:
+      root = _fake_root(Path(d), ["convlstm"])
+      self.assertEqual(g.main(["--model", "simvp", "--root", str(root)]), 1)
 
 
 if __name__ == "__main__":

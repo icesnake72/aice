@@ -1,5 +1,15 @@
 # Coding History
 
+## 2026-09-03 nc_pipeline 분리
+- ConvLSTM·SimVP·PredRNN-V2 를 같은 조건으로 비교하려고 데이터/학습/평가를 `nc_pipeline.py` 로 분리
+- `nc_predict_colab.py` 는 `MODEL_NAME` + `build_model` + `main` 만 남는 얇은 엔트리가 됨 (28,497 params 동일)
+- 공통 API 추가: `residual_head`, `compile_model`, `environment_info`, `write_metrics`, `run(cfg, build_model_fn, model_name)`
+- 결과가 `<out_dir>/<MODEL_NAME>/` 아래로 모이고 `metrics.json`(schema_version 1) 을 남긴다. 그림명은 `samples/hourly_mean/history/full_frame_prediction.png`
+- 로컬 기본 출력 `output/nc_predict` -> `results`, 프레임 캐시는 `<out_dir>/cache/` 에서 모델끼리 공유
+- 생성기 `tools/build_colab_notebook.py` 에 `--model/--profile/--all` 추가 (파이프라인 + 모델 파일을 합쳐 노트북 생성, `from nc_pipeline import (...)` 제거)
+- 테스트 재편: `test_nc_pipeline.py`(git mv) + `test_model_convlstm.py` + `test_build_colab_notebook.py`, 38건 Keras 2/3 모두 통과
+- 검증: 두 환경에서 smoke(`--hours 23 --epochs 1`) 실행 후 metrics.json 이 스키마 0.3 키를 전부 갖는지 확인
+
 ## 2026-09-03 문서 갱신 (Colab 버전 반영)
 - `doc/nc_predict_pipeline.md`: 7.5 절 "Google Colab (T4) 실행" 추가 (파일 구성, Drive 경로, 실행 순서, 로컬 노트북과 차이), 참고 링크 추가
 - `doc/nc_predict_pipeline.md`: 7.2 `optimizers.legacy` 행을 실측대로 수정(ImportError), 7.3 `EPOCHS` 기본값 20 -> 4

@@ -29,3 +29,10 @@ resource/netcdf/
 # 편집기/에이전트 상태 파일
 .obsidian/
 .omc/
+
+# 실행 결과 (그림·metrics.json 만 커밋하고 큰 산출물은 제외)
+results/cache/
+results/**/*.npz
+results/**/*.h5
+results/**/*.npy
+results/**/*.part

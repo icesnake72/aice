@@ -621,24 +621,41 @@ def residual_head(inp, delta):
   return layers.Add(dtype="float32")([TakeLastFrame(dtype="float32")(inp), delta])
 
 
-def delta_readout(x, kernel_size: int = 1, name: str = "delta"):
-  """Δ(변화량) readout Conv2D. 세 모델이 공유한다.
+def delta_readout(x, kernel_size: int = 1, name: str = "delta", init_std: float = 0.0):
+  """Δ(변화량) readout Conv2D. 네 모델이 공유한다.
 
-  kernel_initializer="zeros" 라 학습 시작 시 Δ=0, 즉 출력이 정확히 Persistence(입력 마지막 프레임)에서
-  출발한다. 모델마다 readout 앞 활성 스케일이 달라(GroupNorm vs tanh) 기본 초기화로는 출발점이 달라지므로
-  비교 조건을 통일하기 위해 고정한다. mixed_float16 에서도 Δ 는 float32 로 계산한다.
+  기본값 `init_std=0.0` 은 kernel_initializer="zeros" 라 학습 시작 시 Δ=0, 즉 출력이 정확히
+  Persistence(입력 마지막 프레임)에서 출발한다. 모델마다 readout 앞 활성 스케일이 달라(GroupNorm vs tanh)
+  기본 초기화로는 출발점이 달라지므로 비교 조건을 통일하기 위해 고정한다.
+  mixed_float16 에서도 Δ 는 float32 로 계산한다.
+
+  `init_std > 0` 은 VideoTransformer 전용 예외다. gain 이 정확히 0 이면 본체 gradient
+  (= gain x upstream)도 정확히 0 이라 readout 이 0 을 벗어나기 전까지 본체가 학습되지 않는데,
+  conv 모델은 readout 특징이 입력과 상관돼 gain 이 곧 자라는 반면 transformer 의 readout
+  특징은 초기에 입력의 국소 구조와 정렬되지 않아 gain 이 자라지 못한다(4 epoch 뒤에도 1e-4).
+  bias 는 어느 경우에도 zeros 라 출발점이 Persistence 근처에 남는다.
+
+  주의(2026-09-04 실측): 이 인자만으로 VideoTransformer 의 학습 정체가 풀리지는 않았다.
+  init_std 0.01·0.05 로 GK2A 3 epoch 을 돌리면 본체는 gradient 를 받아 실제로 움직이지만
+  (0.05 에서 loss 0.0527 -> 0.0319) 커널을 도로 0 쪽으로 줄이고(93%·47% 축소)
+  zero-init 과 같은 loss 바닥(0.0318)에 멈춘다. 즉 gradient 전달이 아니라 "Δ=0 보다 나은 해를
+  찾지 못하는 것" 이 남은 원인이다. 자세한 근거는 task-1-report.md "Fix round 5" 절에 있다.
 
   Args:
     x: (B, H, W, C) readout 직전 특징 텐서
-    kernel_size: conv 커널 크기 (ConvLSTM 은 3, SimVP·PredRNN-V2 는 1)
+    kernel_size: conv 커널 크기 (ConvLSTM 은 3, 나머지는 1)
     name: 레이어 이름. 테스트가 이 이름으로 readout 을 찾는다
+    init_std: 커널 초기화 표준편차. 0.0 이면 zeros (기본), 양수면 RandomNormal(seed 고정)
   Returns:
     (B, H, W, 1) float32 Δ 텐서
   """
+  from tensorflow import keras
   from tensorflow.keras import layers
 
+  kernel_init = ("zeros" if init_std == 0.0
+                 else keras.initializers.RandomNormal(stddev=init_std, seed=0))
   return layers.Conv2D(1, (kernel_size, kernel_size), padding="same", activation=None,
-                       dtype="float32", kernel_initializer="zeros",
+                       dtype="float32", kernel_initializer=kernel_init,
                        bias_initializer="zeros", name=name)(x)
 
 

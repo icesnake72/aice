@@ -106,12 +106,18 @@ class VideoTransformerModelTest(unittest.TestCase):
     out = model.predict(x, verbose=0)
     np.testing.assert_allclose(out, x[:, -1], atol=1e-6)
 
-  def test_initial_output_is_persistence(self) -> None:
-    """가중치를 건드리지 않은 초기 모델의 출력 = 입력 마지막 프레임 (Δ readout 0 초기화)."""
+  def test_initial_output_is_near_persistence(self) -> None:
+    """초기 모델의 출력이 입력 마지막 프레임 "근처" 에서 출발한다.
+
+    다른 세 모델과 달리 Δ readout 커널을 작은 난수(DELTA_INIT_STD)로 시작하므로
+    출력이 Persistence 와 정확히 같지는 않다. bias 는 그대로 0 이라 편향은 없고,
+    Δ 가 작은 범위에 머물러야 학습이 Persistence 근처에서 출발한다는 계약이 유지된다.
+    """
     model = build_model(2, 2, 16, 16)
     x = np.random.default_rng(1).random((2, 2, 16, 16, 1)).astype(np.float32)
-    pred = model.predict(x, verbose=0)
-    np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
+    delta = model.predict(x, verbose=0) - x[:, -1]
+    self.assertLess(float(np.abs(delta).mean()), 0.02)
+    self.assertLess(float(np.abs(delta).max()), 0.2)
 
   def test_mixed_precision_output_float32(self) -> None:
     """mixed_float16 정책에서도 Δ 와 최종 출력은 float32 로 유지된다.

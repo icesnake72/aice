@@ -293,6 +293,27 @@ class ModelTest(unittest.TestCase):
     self.assertEqual(out.shape, (2, 8, 8, 1))
     np.testing.assert_allclose(out, x[:, -1], atol=1e-6)
 
+  def test_delta_readout_init_std(self) -> None:
+    """`init_std` 가 0 이면 zeros, 양수면 그 표준편차의 난수 커널이다.
+
+    기본값 0 은 세 모델(ConvLSTM·SimVP·PredRNN-V2)의 "출발점 = Persistence" 계약이고,
+    양수는 VideoTransformer 전용 예외다 (gain 이 0 이면 본체 gradient 가 Adam epsilon
+    아래로 내려가 학습이 시작되지 않는다). bias 는 어느 쪽이든 0 이어야 한다.
+    """
+    from tensorflow import keras
+
+    inp = keras.Input(shape=(8, 8, 16))
+    zero_model = keras.Model(inp, m.delta_readout(inp, name="delta_zero"))
+    zero_kernel, zero_bias = zero_model.get_layer("delta_zero").get_weights()
+    np.testing.assert_array_equal(zero_kernel, np.zeros_like(zero_kernel))
+    np.testing.assert_array_equal(zero_bias, np.zeros_like(zero_bias))
+
+    rand_model = keras.Model(inp, m.delta_readout(inp, name="delta_rand", init_std=0.01))
+    rand_kernel, rand_bias = rand_model.get_layer("delta_rand").get_weights()
+    self.assertGreater(float(np.abs(rand_kernel).max()), 0.0)
+    self.assertAlmostEqual(float(rand_kernel.std()), 0.01, delta=0.006)   # 16개 표본이라 여유를 둔다
+    np.testing.assert_array_equal(rand_bias, np.zeros_like(rand_bias))
+
   def test_persistence_baseline_on_synthetic(self) -> None:
     """일정 증가 시퀀스의 Persistence MAE 를 확인한다."""
     frames = np.stack([np.full((16, 16), 0.1 * t, np.float32) for t in range(5)])

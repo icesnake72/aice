@@ -13,8 +13,11 @@ arXiv:2410.04733, 공식 구현 github.com/yyyujintang/PredFormer — README 에
   - 학습형 위치 임베딩 대신 고정 sinusoidal 인코딩을 쓴다. 학습 파라미터가 없어야
     96x96 으로 학습한 가중치를 250x250 모델로 그대로 옮길 수 있기 때문이다.
   - 다음 1 프레임만 예측하므로 디코더 없이 마지막 시점 토큰만 읽어 Δ 를 만든다.
-    readout 은 픽셀당 READOUT_CH(8) 채널을 내고 그 위에 zero-init Δ conv 를 얹는다
-    (1채널이면 Δ conv 가 스칼라 gain 하나가 되어 학습이 시작되지 않는다).
+    readout 은 픽셀당 READOUT_CH(8) 채널을 낸다 (1채널이면 Δ conv 가 스칼라 gain 하나가 된다).
+  - 네 모델 중 이 모델만 Δ readout 커널을 0 이 아니라 작은 난수(DELTA_INIT_STD=0.01)로 시작한다.
+    gain 이 0 이면 본체 gradient 도 0 인데, conv 모델과 달리 transformer 의 readout 특징은 초기에
+    입력 국소 구조와 정렬되지 않아 gain 이 스스로 자라지 못하기 때문이다. 다만 이 초기화만으로
+    실데이터 학습 정체가 풀리지는 않았다 (미해결, task-1-report.md "Fix round 5" 참고).
   - dim 128 / depth 4 / head 4 로 작게 잡았다 (공식은 과제별로 훨씬 크다).
 
 Colab 사용법
@@ -62,6 +65,12 @@ DIM_PER_FILTER = 8   # DIM = DIM_PER_FILTER * filters (filters=16 -> DIM 128)
 # gradient 부호가 배치마다 뒤집히고 본체로 전달되지 않는다 (2026-09-04 실측: 4 epoch loss 평평).
 # ConvLSTM 16 · SimVP 16 · PredRNN-V2 4 채널과 같은 취지로 다채널을 준다.
 READOUT_CH = 8
+# Δ readout 커널 초기화 표준편차. 이 모델만 0 이 아니다 (nc_pipeline.delta_readout 참고).
+# gain 이 0 이면 본체 gradient 도 0 이라 readout 이 0 을 벗어나기 전까지 본체가 학습되지 않는데,
+# conv 모델과 달리 transformer 의 readout 특징은 초기에 입력 국소 구조와 정렬되지 않아
+# gain 이 스스로 자라지 못한다 (4 epoch 실측 1e-4). bias 는 그대로 0 이라 출발점은 Persistence 근처다.
+# 다만 이것만으로 실데이터 학습 정체는 풀리지 않았다 (task-1-report.md "Fix round 5").
+DELTA_INIT_STD = 0.01
 
 DELTA_LAYER_NAME = "delta"    # 잔차 Δ 를 내는 readout Conv2D. 테스트가 이름으로 찾는다
 POS_LAYER_NAME = "posenc"     # 고정 위치 인코딩 레이어. 테스트가 파라미터 0 을 확인한다
@@ -326,7 +335,7 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   y = layers.Cropping2D(((0, pad_h), (0, pad_w)), name="head_crop")(y)
 
   # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
-  delta = delta_readout(y, kernel_size=1, name=DELTA_LAYER_NAME)
+  delta = delta_readout(y, kernel_size=1, name=DELTA_LAYER_NAME, init_std=DELTA_INIT_STD)
   return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
 
 

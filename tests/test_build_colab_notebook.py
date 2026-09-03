@@ -156,12 +156,15 @@ class NotebookPathTest(unittest.TestCase):
                      root / "SimVP_prediction.ipynb")
     self.assertEqual(g.notebook_path("PredRNN_V2", "colab", root),
                      root / "PredRNN_V2_prediction_colab.ipynb")
+    self.assertEqual(g.notebook_path("VideoTransformer", "local", root),
+                     root / "VideoTransformer_prediction.ipynb")
 
   def test_model_specs(self) -> None:
     """모델 키 -> (스크립트, 표시 이름) 매핑이 계획과 같다."""
     self.assertEqual(g.MODEL_SPECS["convlstm"], ("nc_predict_colab.py", "ConvLSTM"))
     self.assertEqual(g.MODEL_SPECS["simvp"], ("simvp_predict_colab.py", "SimVP"))
     self.assertEqual(g.MODEL_SPECS["predrnn_v2"], ("predrnn_v2_predict_colab.py", "PredRNN_V2"))
+    self.assertEqual(g.MODEL_SPECS["videotf"], ("videotf_predict_colab.py", "VideoTransformer"))
 
 
 class CliTest(unittest.TestCase):
@@ -185,9 +188,9 @@ class CliTest(unittest.TestCase):
       self.assertEqual(_built(out), ["ConvLSTM_prediction_colab.ipynb"])
 
   def test_main_all_builds_every_target_when_sources_exist(self) -> None:
-    """세 모델 스크립트가 모두 있으면 --all 이 5개 조합을 만든다."""
+    """네 모델 스크립트가 모두 있으면 --all 이 7개 조합을 만든다."""
     with tempfile.TemporaryDirectory() as d:
-      root = _fake_root(Path(d), ["convlstm", "simvp", "predrnn_v2"])
+      root = _fake_root(Path(d), ["convlstm", "simvp", "predrnn_v2", "videotf"])
       out = Path(d) / "out"
       rc = g.main(["--all", "--root", str(root), "--out-dir", str(out)])
       self.assertEqual(rc, 0)
@@ -195,6 +198,7 @@ class CliTest(unittest.TestCase):
         "ConvLSTM_prediction_colab.ipynb",
         "PredRNN_V2_prediction.ipynb", "PredRNN_V2_prediction_colab.ipynb",
         "SimVP_prediction.ipynb", "SimVP_prediction_colab.ipynb",
+        "VideoTransformer_prediction.ipynb", "VideoTransformer_prediction_colab.ipynb",
       ])
       # ConvLSTM 의 local 은 수작업 노트북이 있어 --all 대상이 아니다
       self.assertFalse((out / "ConvLSTM_prediction.ipynb").exists())
@@ -206,7 +210,7 @@ class CliTest(unittest.TestCase):
       with self.assertLogs(g.logger, level="WARNING") as caught:
         g.main(["--all", "--root", str(root), "--out-dir", str(Path(d) / "out")])
       missing = [line for line in caught.output if "모델 스크립트 없음" in line]
-      self.assertEqual(len(missing), 2)   # simvp, predrnn_v2 각각 1번
+      self.assertEqual(len(missing), 3)   # simvp, predrnn_v2, videotf 각각 1번
 
   def test_main_uses_root_for_out_dir_by_default(self) -> None:
     """--out-dir 을 안 주면 --root 아래에 만든다 (저장소 루트를 건드리지 않는다)."""

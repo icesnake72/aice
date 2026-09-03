@@ -128,7 +128,7 @@ class TagBalance(HTMLParser):
 
 
 def test_load_results_order(tmp_path: Path) -> None:
-  """표시 순서는 ConvLSTM, SimVP, PredRNN_V2 이고 없는 모델은 빠진다."""
+  """표시 순서는 ConvLSTM, SimVP, PredRNN_V2, VideoTransformer 이고 없는 모델은 빠진다."""
   results = br.load_results(make_results(tmp_path))
   assert [r["model"] for r in results] == ["ConvLSTM", "PredRNN_V2"]
   assert all(isinstance(r["_dir"], Path) for r in results)
@@ -171,11 +171,12 @@ def test_encode_image(tmp_path: Path) -> None:
 
 
 def test_render_contains_table_and_missing_placeholder(tmp_path: Path) -> None:
-  """두 모델이 표에 있고 SimVP 는 '결과 없음', 그림은 base64, 외부 리소스는 0."""
+  """두 모델이 표에 있고 SimVP·VideoTransformer 는 '결과 없음', 그림은 base64, 외부 리소스는 0."""
   html_text = br.render_html(br.load_results(make_results(tmp_path)), "2026-09-03T12:00:00+09:00")
   assert "ConvLSTM" in html_text
   assert "PredRNN" in html_text
   assert "SimVP" in html_text
+  assert "VideoTransformer" in html_text
   assert "결과 없음" in html_text
   assert "data:image/png;base64," in html_text
   assert "<script" not in html_text
@@ -219,8 +220,8 @@ def test_render_shows_numbers_and_reference_line(tmp_path: Path) -> None:
 def test_render_handles_no_results() -> None:
   """결과가 하나도 없어도 페이지는 만들어지고 모든 모델이 '결과 없음'."""
   html_text = br.render_html([], "2026-09-03T12:00:00+09:00")
-  assert html_text.count("결과 없음") >= 3
-  for model in ("ConvLSTM", "SimVP", "PredRNN"):
+  assert html_text.count("결과 없음") >= 4
+  for model in ("ConvLSTM", "SimVP", "PredRNN", "VideoTransformer"):
     assert model in html_text
   parser = TagBalance()
   parser.feed(html_text)

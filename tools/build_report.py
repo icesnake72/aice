@@ -26,12 +26,13 @@ from typing import Any, Sequence
 logger = logging.getLogger("build_report")
 
 # 표시 순서 (그 외 모델은 이름순으로 뒤에 붙는다).
-MODEL_ORDER: tuple[str, ...] = ("ConvLSTM", "SimVP", "PredRNN_V2")
+MODEL_ORDER: tuple[str, ...] = ("ConvLSTM", "SimVP", "PredRNN_V2", "VideoTransformer")
 # 디렉터리 이름 -> 화면 표기.
 MODEL_LABELS: dict[str, str] = {
   "ConvLSTM": "ConvLSTM",
   "SimVP": "SimVP",
   "PredRNN_V2": "PredRNN-V2",
+  "VideoTransformer": "VideoTransformer",
 }
 # nc_pipeline 의 계약 상수를 리포트 쪽에서 다시 선언한다 (표준 라이브러리만 쓰기 위해).
 # 두 정의가 어긋나면 리포트가 조용히 비므로 tests/test_build_report.py 가 일치를 잠근다.

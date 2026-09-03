@@ -46,6 +46,7 @@ MODEL_SPECS: dict[str, tuple[str, str]] = {
   "convlstm": ("nc_predict_colab.py", "ConvLSTM"),
   "simvp": ("simvp_predict_colab.py", "SimVP"),
   "predrnn_v2": ("predrnn_v2_predict_colab.py", "PredRNN_V2"),
+  "videotf": ("videotf_predict_colab.py", "VideoTransformer"),
 }
 # 수작업으로 만든 노트북. 생성기가 덮어쓰면 안 된다.
 HANDWRITTEN_NOTEBOOKS = frozenset({"ConvLSTM_prediction.ipynb"})
@@ -54,6 +55,7 @@ ALL_TARGETS: tuple[tuple[str, str], ...] = (
   ("convlstm", "colab"),
   ("simvp", "local"), ("simvp", "colab"),
   ("predrnn_v2", "local"), ("predrnn_v2", "colab"),
+  ("videotf", "local"), ("videotf", "colab"),
 )
 
 PIPELINE_MODULE = "nc_pipeline.py"

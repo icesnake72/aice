@@ -13,6 +13,8 @@ arXiv:2410.04733, 공식 구현 github.com/yyyujintang/PredFormer — README 에
   - 학습형 위치 임베딩 대신 고정 sinusoidal 인코딩을 쓴다. 학습 파라미터가 없어야
     96x96 으로 학습한 가중치를 250x250 모델로 그대로 옮길 수 있기 때문이다.
   - 다음 1 프레임만 예측하므로 디코더 없이 마지막 시점 토큰만 읽어 Δ 를 만든다.
+    readout 은 픽셀당 READOUT_CH(8) 채널을 내고 그 위에 zero-init Δ conv 를 얹는다
+    (1채널이면 Δ conv 가 스칼라 gain 하나가 되어 학습이 시작되지 않는다).
   - dim 128 / depth 4 / head 4 로 작게 잡았다 (공식은 과제별로 훨씬 크다).
 
 Colab 사용법
@@ -56,6 +58,10 @@ DEPTH = 4            # Transformer 블록 수
 MLP_RATIO = 4        # MLP 은닉 폭 배수
 DROPOUT = 0.0        # attention/MLP dropout. 데이터가 작아 0 으로 둔다
 DIM_PER_FILTER = 8   # DIM = DIM_PER_FILTER * filters (filters=16 -> DIM 128)
+# Δ readout 이 보는 특징 채널 수. 1채널이면 zero-init delta_readout 이 스칼라 gain 하나가 되어
+# gradient 부호가 배치마다 뒤집히고 본체로 전달되지 않는다 (2026-09-04 실측: 4 epoch loss 평평).
+# ConvLSTM 16 · SimVP 16 · PredRNN-V2 4 채널과 같은 취지로 다채널을 준다.
+READOUT_CH = 8
 
 DELTA_LAYER_NAME = "delta"    # 잔차 Δ 를 내는 readout Conv2D. 테스트가 이름으로 찾는다
 POS_LAYER_NAME = "posenc"     # 고정 위치 인코딩 레이어. 테스트가 파라미터 0 을 확인한다
@@ -312,8 +318,10 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   take_last_frame = make_take_last_frame_layer()
   y = take_last_frame(name="last_token")(x)
   y = layers.LayerNormalization(name="head_ln")(y)
-  y = layers.Dense(PATCH * PATCH, name="head_proj")(y)
-  y = layers.Reshape((grid_h, grid_w, PATCH * PATCH), name="head_grid")(y)
+  # 패치당 PATCH*PATCH 픽셀 × READOUT_CH 채널을 내고 depth_to_space 로 픽셀 격자를 편다
+  # (채널 수가 PATCH^2 의 배수여야 한다: 8*8*8 = 512).
+  y = layers.Dense(PATCH * PATCH * READOUT_CH, name="head_proj")(y)
+  y = layers.Reshape((grid_h, grid_w, PATCH * PATCH * READOUT_CH), name="head_grid")(y)
   y = DepthToSpace(PATCH, name="from_patch")(y)
   y = layers.Cropping2D(((0, pad_h), (0, pad_w)), name="head_crop")(y)
 

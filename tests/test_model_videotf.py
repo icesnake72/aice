@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,7 @@ from videotf_predict_colab import (  # noqa: E402
   MODEL_NAME,
   PATCH,
   POS_LAYER_NAME,
+  READOUT_CH,
   TOKEN_LAYER_NAME,
   FoldSpace,
   FoldTime,
@@ -34,6 +36,26 @@ from videotf_predict_colab import (  # noqa: E402
 def _dtype_name(dtype) -> str:
   """dtype 이름을 문자열로 정규화한다 (Keras 2 는 tf.DType, Keras 3 는 str)."""
   return getattr(dtype, "name", None) or str(dtype)
+
+
+def _reset_keras2_seed_generator() -> None:
+  """`keras.utils.set_random_seed` 가 남긴 Keras 2 전역 시드 상태를 되돌린다.
+
+  Keras 2 는 전역 시드가 걸리면 레이어 초기화 시드를 Python `random` 으로 뽑고,
+  그 경로가 `random.randint(1, 1e9)` 를 호출해 Python 3.11 이 변수마다
+  DeprecationWarning 을 낸다. 되돌리지 않으면 이 테스트 이후에 만드는 모든 모델까지
+  경고를 쏟아낸다 (mixed precision 테스트가 정책을 finally 로 복구하는 것과 같은 이유).
+  Keras 3 에는 이 내부 경로가 없어 조용히 넘어간다.
+  """
+  try:
+    import keras.src.backend as keras_backend
+  except ImportError:
+    return
+  holder = getattr(keras_backend, "_SEED_GENERATOR", None)
+  try:
+    del holder.generator
+  except AttributeError:   # Keras 3 이거나 애초에 설정되지 않았다
+    pass
 
 
 def _token_count(model) -> int:
@@ -147,6 +169,58 @@ class VideoTransformerModelTest(unittest.TestCase):
     pos = model.get_layer(POS_LAYER_NAME)
     self.assertEqual(pos.count_params(), 0)
     self.assertEqual(pos.weights, [])
+
+  def test_model_actually_learns(self) -> None:
+    """합성 과제로 loss 가 실제로 내려간다 (readout 채널 수 회귀 방지).
+
+    2026-09-04 실측: readout 입력이 1채널이면 zero-init `delta_readout` 이 스칼라
+    gain 하나가 되어 gradient 부호가 배치마다 뒤집히고, gain 이 0 근처를 맴돌아
+    본체 110개 변수의 gradient 가 정확히 0 이 된다. 실데이터 4 epoch 동안 loss 가
+    평평했다(val MAE = Persistence). 다른 테스트는 이 결함을 잡지 못한다 —
+    Δ 가 zero-init 이라 persistence 계열은 통과하고, `test_fit_one_step` 은
+    loss 의 유한성만 본다.
+
+    타깃은 "마지막 프레임 + 고정 공간 패턴" 이라 위치 인코딩을 가진 본체가
+    풀 수 있는 과제다. 40 step (32샘플 / batch 8 x 10 epoch) 이면 충분하다.
+    """
+    from tensorflow import keras
+
+    self.assertGreater(READOUT_CH, 1, "readout 입력이 1채널이면 학습이 시작되지 않는다")
+    # 40 step 은 초기값에 민감해 전역 시드를 고정한다. step 수를 늘리면 1채널 모델도
+    # 결국 이 합성 과제를 풀어버려 회귀 검출력이 사라진다 (80 step 실측: 1채널도 35~70% 감소).
+    keras.utils.set_random_seed(0)
+    try:
+      rng = np.random.default_rng(3)
+      x = rng.random((32, 4, 16, 16, 1)).astype(np.float32)
+      grid_y, grid_x = np.meshgrid(np.arange(16), np.arange(16), indexing="ij")
+      pattern = (0.1 * np.sin(grid_y / 3.0) * np.cos(grid_x / 4.0)).astype(np.float32)
+      y = np.clip(x[:, -1] + pattern[None, :, :, None], 0.0, 1.0)
+
+      with warnings.catch_warnings():
+        # 위 시드 때문에 Keras 2 초기화가 변수마다 DeprecationWarning 을 낸다 (Keras 내부).
+        warnings.simplefilter("ignore", DeprecationWarning)
+        model = build_model(4, 2, 16, 16)
+        body_before = model.get_layer("blk1_mlp1").get_weights()[0].copy()
+        losses = model.fit(x, y, epochs=10, batch_size=8, verbose=0).history["loss"]
+    finally:   # 전역 시드를 되돌리지 않으면 뒤따르는 테스트가 경고로 덮인다
+      _reset_keras2_seed_generator()
+
+    # 1) 손실이 유의미하게 내려간다. 이것이 1채널 회귀를 가르는 단언이다
+    #    (실측: 8채널 Keras 2 58.7% / Keras 3 49.4%, 1채널 5.3% / 10.7%).
+    drop = 1.0 - losses[-1] / losses[0]
+    self.assertGreater(drop, 0.20, f"loss 가 거의 안 내려갔다: {losses}")
+
+    # 2) Δ readout 이 0 에서 벗어났고 본체 가중치도 갱신됐다 (sanity check)
+    delta_kernel = model.get_layer(DELTA_LAYER_NAME).get_weights()[0]
+    self.assertGreater(float(np.linalg.norm(delta_kernel)), 1e-3)
+    body_after = model.get_layer("blk1_mlp1").get_weights()[0]
+    self.assertGreater(float(np.abs(body_after - body_before).max()), 1e-4)
+
+  def test_readout_feature_channels(self) -> None:
+    """Δ conv 직전 특징 맵이 READOUT_CH 채널이다 (depth_to_space 채널 계산 포함)."""
+    model = build_model(4, 2, 32, 32)
+    self.assertEqual(model.get_layer("head_crop").output.shape[-1], READOUT_CH)
+    self.assertEqual(model.get_layer("head_proj").output.shape[-1], PATCH * PATCH * READOUT_CH)
 
   def test_fold_unfold_roundtrip(self) -> None:
     """접기/펼치기 왕복이 항등이다.

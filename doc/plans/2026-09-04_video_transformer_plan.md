@@ -48,7 +48,8 @@
    - 시간 attention: `(B, T, N, D)` → `(B*N, T, D)` 로 접어 self-attention → 되돌림.
    - MLP: `Dense(DIM*MLP_RATIO, gelu) → Dense(DIM)`.
    - 각 서브레이어 앞에 `LayerNormalization`, 뒤에 residual add. 접기/펼치기는 `tf.reshape` + `tf.shape(x)[0]` 를 쓰는 커스텀 Layer(`compute_output_shape` 포함)로 만든다. `Lambda` 금지.
-5. **Readout**: 마지막 시점 토큰 `(B, N, DIM)` → `LayerNormalization` → `Dense(PATCH*PATCH)` → `(B, Hp, Wp, PATCH*PATCH)` → `DepthToSpace(PATCH)` (tf.nn.depth_to_space 래퍼) → `(B, h_p, w_p, 1)` → `Cropping2D` 로 `(B, h, w, 1)` → `delta_readout(kernel_size=1)` (float32, zero-init) → `residual_head`.
+5. **Readout**: 마지막 시점 토큰 `(B, N, DIM)` → `LayerNormalization` → `Dense(PATCH*PATCH*READOUT_CH)` (`READOUT_CH = 8`) → `(B, Hp, Wp, PATCH*PATCH*READOUT_CH)` → `DepthToSpace(PATCH)` (tf.nn.depth_to_space 래퍼) → `(B, h_p, w_p, READOUT_CH)` → `Cropping2D` 로 `(B, h, w, READOUT_CH)` → `delta_readout(kernel_size=1)` (float32, zero-init) → `residual_head`.
+   > 주의(2026-09-04 실측): readout 입력이 1채널이면 zero-init `delta_readout` 이 스칼라 gain 하나가 되어 gradient 부호가 배치마다 뒤집히고 0 근처에 머문다. 본체의 나머지 변수는 gradient 가 정확히 0 이라 4 epoch 동안 loss 가 평평했다(val MAE 0.00625 = Persistence). 다른 세 모델처럼 readout 입력을 다채널(8)로 두어야 학습이 시작된다.
 6. `compile_model(model, lr)`.
 
 파라미터 규모 추정: 블록당 약 4·DIM²(공간) + 4·DIM²(시간) + 8·DIM²(MLP) ≈ 262k → DEPTH 4 ≈ 1.05M + embedding. 리포트에 실측 `count_params()` 를 적는다.

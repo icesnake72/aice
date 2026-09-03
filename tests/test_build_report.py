@@ -217,6 +217,26 @@ def test_render_shows_numbers_and_reference_line(tmp_path: Path) -> None:
   assert "METAL" in html_text
 
 
+def test_title_and_h1_list_every_model() -> None:
+  """<title> 과 h1 이 MODEL_ORDER 의 네 모델을 모두 나열한다.
+
+  제목을 하드코딩하면 모델을 추가할 때 조용히 낡는다 (VideoTransformer 를 넣기 전까지
+  실제로 그랬다). MODEL_ORDER 에서 만들어지는지 확인한다.
+  """
+  html_text = br.render_html([], "2026-09-04T12:00:00+09:00")
+  head_title = html_text.split("</head>", 1)[0].split("<title>", 1)[1].split("</title>", 1)[0]
+  h1 = html_text.split("<h1>", 1)[1].split("</h1>", 1)[0]
+
+  for name in ("ConvLSTM", "SimVP", "PredRNN-V2", "VideoTransformer"):
+    assert name in head_title, name
+    assert name in h1, name
+  assert head_title == h1 == br.PAGE_TITLE
+  assert br.PAGE_TITLE == " · ".join(br._label(m) for m in br.MODEL_ORDER) + " 비교"
+  # 방법론 각주·데이터 요약 부제의 모델 수도 MODEL_ORDER 를 따른다
+  assert br.MODEL_COUNT_PHRASE == "4개 모델"
+  assert "세 모델" not in html_text
+
+
 def test_fourth_series_uses_own_color_not_fallback(tmp_path: Path) -> None:
   """모델 4개를 그릴 때 네 번째 시리즈는 중립 fallback 이 아니라 slot 4 색을 쓴다.
 
@@ -295,7 +315,7 @@ def test_cli_writes_file_without_results(tmp_path: Path) -> None:
 
 # 배너·각주 판별에 쓰는 표시 문구 (구현과 같은 문자열이어야 한다).
 BANNER_MARK = "실행 조건이 모델마다 다르다."
-NOTE_SAME = "세 모델 모두 같은 프레임 캐시"
+NOTE_SAME = f"{br.MODEL_COUNT_PHRASE} 모두 같은 프레임 캐시"   # 모델 수를 따라 바뀐다
 NOTE_DIFF = "실행 조건이 모델마다 다르다 (metrics.json 의 config·data 절이 어긋난다)"
 
 

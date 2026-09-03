@@ -34,6 +34,13 @@ MODEL_LABELS: dict[str, str] = {
   "PredRNN_V2": "PredRNN-V2",
   "VideoTransformer": "VideoTransformer",
 }
+
+
+def _label(name: str) -> str:
+  """디렉터리 이름을 화면 표기로 바꾼다."""
+  return MODEL_LABELS.get(name, name.replace("_", "-"))
+
+
 # nc_pipeline 의 계약 상수를 리포트 쪽에서 다시 선언한다 (표준 라이브러리만 쓰기 위해).
 # 두 정의가 어긋나면 리포트가 조용히 비므로 tests/test_build_report.py 가 일치를 잠근다.
 METRICS_NAME = "metrics.json"
@@ -58,7 +65,9 @@ MIME_BY_SUFFIX: dict[str, str] = {
   ".gif": "image/gif",
 }
 
-PAGE_TITLE = "ConvLSTM · SimVP · PredRNN-V2 비교"
+# 제목·각주는 MODEL_ORDER 에서 만든다. 모델을 추가하면 하드코딩을 고칠 필요 없이 따라온다.
+PAGE_TITLE = " · ".join(_label(m) for m in MODEL_ORDER) + " 비교"
+MODEL_COUNT_PHRASE = f"{len(MODEL_ORDER)}개 모델"
 
 CSS = """
 :root {
@@ -614,11 +623,6 @@ def _model_names(results: Sequence[dict[str, Any]]) -> list[str]:
   return list(MODEL_ORDER) + extras
 
 
-def _label(name: str) -> str:
-  """디렉터리 이름을 화면 표기로 바꾼다."""
-  return MODEL_LABELS.get(name, name.replace("_", "-"))
-
-
 def _swatch(slot: int) -> str:
   """모델 색 스와치 span."""
   return f'<span class="swatch" style="background: var({_series_token(slot)})"></span>'
@@ -864,7 +868,7 @@ def _data_figures(results: Sequence[dict[str, Any]]) -> str:
 def _notes_section(consistent: bool = True) -> str:
   """방법론 각주. `consistent` 가 False 면 첫 항목을 조건 불일치 문장으로 바꾼다."""
   first = (
-    "세 모델 모두 같은 프레임 캐시·같은 시간 분할(앞 구간 학습, 뒤 구간 검증)·같은 정규화 "
+    f"{MODEL_COUNT_PHRASE} 모두 같은 프레임 캐시·같은 시간 분할(앞 구간 학습, 뒤 구간 검증)·같은 정규화 "
     "범위(gmin~gmax)를 쓴다. 분할과 정규화는 공통 모듈에서만 정의한다."
     if consistent else
     "실행 조건이 모델마다 다르다 (metrics.json 의 config·data 절이 어긋난다). 프레임 캐시·"
@@ -874,7 +878,7 @@ def _notes_section(consistent: bool = True) -> str:
   items = [
     first,
     "출력은 residual head 다: 예측 = 마지막 입력 프레임 + Δ. 모델은 Δ 만 학습한다.",
-    "손실은 세 모델 공통으로 0.5·MAE + 0.5·(1 − SSIM) 이며, 혼합 정밀도에서도 Δ 와 출력은 "
+    f"손실은 {MODEL_COUNT_PHRASE} 공통으로 0.5·MAE + 0.5·(1 − SSIM) 이며, 혼합 정밀도에서도 Δ 와 출력은 "
     "float32 로 계산한다.",
     "Persistence 베이스라인은 '다음 프레임 = 마지막 입력 프레임' 이다. 같은 검증 표본에서 "
     "계산하므로 모델 값과 직접 비교할 수 있고, 차트의 점선 기준선이 그 값이다.",
@@ -918,7 +922,8 @@ def render_html(results: list[dict[str, Any]], generated_at: str) -> str:
     f"생성 시각 {esc(generated_at)}</p>",
     "</header>",
     banner,
-    _section("1. 데이터 요약", "세 모델이 공유하는 입력 데이터와 분할", _summary_section(results)),
+    _section("1. 데이터 요약", f"{MODEL_COUNT_PHRASE}이 공유하는 입력 데이터와 분할",
+             _summary_section(results)),
     _section("2. 핵심 비교", "학습 비용과 검증·전체 프레임 성능", _comparison_table(names, by_model)),
     _section("3. 검증 지표 비교", "점선은 Persistence 베이스라인 기준선이다",
              _charts_section(names, by_model)),

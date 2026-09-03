@@ -23,6 +23,10 @@ from videotf_predict_colab import (  # noqa: E402
   PATCH,
   POS_LAYER_NAME,
   TOKEN_LAYER_NAME,
+  FoldSpace,
+  FoldTime,
+  UnfoldSpace,
+  UnfoldTime,
   build_model,
 )
 
@@ -143,6 +147,49 @@ class VideoTransformerModelTest(unittest.TestCase):
     pos = model.get_layer(POS_LAYER_NAME)
     self.assertEqual(pos.count_params(), 0)
     self.assertEqual(pos.weights, [])
+
+  def test_fold_unfold_roundtrip(self) -> None:
+    """접기/펼치기 왕복이 항등이다.
+
+    transpose 순서를 틀려도 shape 은 그대로 유효해서 다른 테스트가 잡지 못한다
+    (Δ readout 이 zero-init 이라 persistence 계열은 본체를 지나가고, 학습 테스트는
+    loss 의 유한성만 본다). 값으로 잠근다.
+    """
+    import tensorflow as tf
+
+    b, t, n, d = 2, 3, 5, 4
+    x = np.random.default_rng(7).random((b, t, n, d)).astype(np.float32)
+    tensor = tf.constant(x)
+
+    np.testing.assert_array_equal(UnfoldSpace(t)(FoldSpace()(tensor)).numpy(), x)
+    np.testing.assert_array_equal(UnfoldTime(n)(FoldTime()(tensor)).numpy(), x)
+
+  def test_fold_index_semantics(self) -> None:
+    """접힌 배치 인덱스가 올바른 (b, t) / (b, n) 조합을 가리킨다.
+
+    왕복만 보면 두 번 틀린 전치가 상쇄돼 통과할 수 있다. 접힌 상태에서
+    공간 fold 는 b*T+t 가 원본 [b, t] 와, 시간 fold 는 b*N+n 이 [b, :, n] 과
+    같아야 attention 이 "같은 프레임의 패치끼리" / "같은 위치의 시간열끼리" 섞는다.
+    """
+    import tensorflow as tf
+
+    b, t, n, d = 2, 3, 5, 4
+    x = np.random.default_rng(11).random((b, t, n, d)).astype(np.float32)
+    tensor = tf.constant(x)
+
+    folded_space = FoldSpace()(tensor).numpy()        # (B*T, N, D)
+    self.assertEqual(folded_space.shape, (b * t, n, d))
+    for bi in range(b):
+      for ti in range(t):
+        np.testing.assert_array_equal(folded_space[bi * t + ti], x[bi, ti],
+                                      err_msg=f"space fold b={bi} t={ti}")
+
+    folded_time = FoldTime()(tensor).numpy()          # (B*N, T, D)
+    self.assertEqual(folded_time.shape, (b * n, t, d))
+    for bi in range(b):
+      for ni in range(n):
+        np.testing.assert_array_equal(folded_time[bi * n + ni], x[bi, :, ni, :],
+                                      err_msg=f"time fold b={bi} n={ni}")
 
   def test_pad_multiple_of_patch(self) -> None:
     """PATCH 배수로 pad 한 뒤의 토큰 수: 96 -> 12x12=144, 250 -> 32x32=1024."""

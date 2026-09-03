@@ -220,8 +220,10 @@ class DepthToSpace(keras.layers.Layer):
     super().__init__(**kwargs)
     self.block_size = int(block_size)
 
-  def call(self, x):
-    """채널을 공간 블록으로 편다."""
+  @tf.autograph.experimental.do_not_convert
+  def call(self, x, training=None):
+    """채널을 공간 블록으로 편다 (제어 흐름이 없어 AutoGraph 변환이 필요 없다)."""
+    del training
     return tf.nn.depth_to_space(x, self.block_size)
 
   def compute_output_shape(self, input_shape):

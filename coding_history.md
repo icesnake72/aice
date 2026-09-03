@@ -1,3 +1,10 @@
+## 2026-09-03 세 모델 로컬 실행 결과 반영
+- ConvLSTM / SimVP / PredRNN-V2 를 M1 Pro(Metal, mixed_float16)에서 4 epoch 씩 순차 실행 → `results/<Model>/` (metrics.json, png, csv 만 커밋)
+- val MAE: SimVP 0.00358 (+42.5%) < ConvLSTM 0.00399 (+36.0%) < PredRNN-V2 0.00516 (+17.1%), Persistence 0.00623
+- `python3 tools/build_report.py` 로 `site/index.html` 재생성 (4.8 MB, 자기완결)
+- `doc/model_comparison.md` 7.2 측정값 표와 관찰 요약 채움
+- Colab T4 실측은 미완 (사용자가 직접 실행 후 results/ 교체 예정)
+
 # Coding History
 
 ## 2026-09-03 모델 비교 문서

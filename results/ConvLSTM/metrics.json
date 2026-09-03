@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "model": "ConvLSTM",
+  "params": 28497,
+  "created_at": "2026-09-03T13:53:07+09:00",
+  "env": {
+    "colab": false,
+    "platform": "macOS-26.2-arm64-arm-64bit",
+    "python": "3.11.4",
+    "tensorflow": "2.15.0",
+    "keras": "2.15.0",
+    "gpu": "METAL",
+    "precision_policy": "mixed_float16"
+  },
+  "config": {
+    "in_frames": 4,
+    "target": 250,
+    "patch": 96,
+    "stride": 77,
+    "filters": 16,
+    "epochs": 4,
+    "batch": 16,
+    "lr": 0.001,
+    "hours": null,
+    "seed": 42
+  },
+  "data": {
+    "n_frames": 710,
+    "period": "2025-10-17 00:00 ~ 23:58 UTC",
+    "segments": [
+      [
+        0,
+        180
+      ],
+      [
+        180,
+        630
+      ],
+      [
+        630,
+        710
+      ]
+    ],
+    "gmin": 14848.5,
+    "gmax": 16361.5,
+    "n_train": 5022,
+    "n_val": 1224,
+    "train_period": "00:00 ~ 19:00",
+    "val_period": "19:02 ~ 23:58"
+  },
+  "baseline": {
+    "mae": 0.008011441677808762,
+    "ssim": 0.9559621214866638
+  },
+  "train": {
+    "epochs_run": 4,
+    "seconds": 710.5,
+    "sec_per_epoch": 177.6,
+    "history": {
+      "loss": [
+        0.01990317553281784,
+        0.011768984608352184,
+        0.010543105192482471,
+        0.010174812749028206
+      ],
+      "val_loss": [
+        0.01124856248497963,
+        0.009642884135246277,
+        0.008793356828391552,
+        0.008738186210393906
+      ],
+      "mae": [
+        0.008178230375051498,
+        0.006261894479393959,
+        0.005745718255639076,
+        0.005560589488595724
+      ],
+      "val_mae": [
+        0.004779046401381493,
+        0.005237774457782507,
+        0.0039734975434839725,
+        0.003988208714872599
+      ]
+    }
+  },
+  "val": {
+    "model_mae": 0.003988069947808981,
+    "model_ssim": 0.9865092635154724,
+    "pers_mae": 0.006229879334568977,
+    "pers_ssim": 0.9594787359237671,
+    "mae_gain_pct": 35.9847962755943
+  },
+  "full_frame": {
+    "model_mae": 0.006754142232239246,
+    "model_ssim": 0.9726886749267578,
+    "pers_mae": 0.010906693525612354,
+    "pers_ssim": 0.9203925728797913,
+    "t_pred": "23:58",
+    "inputs": "23:50~23:56"
+  },
+  "figures": {
+    "samples": "samples.png",
+    "hourly_mean": "hourly_mean.png",
+    "history": "history.png",
+    "full_frame": "full_frame_prediction.png"
+  }
+}

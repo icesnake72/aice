@@ -299,12 +299,24 @@ git push
 
 | 모델 | params | epochs_run | sec/epoch | val MAE | val SSIM | full-frame MAE | Persistence 대비 MAE 개선율 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| ConvLSTM | 28,497 | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) |
-| SimVP | 574,257 | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) |
-| PredRNN-V2 | 63,494 | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) | (실행 후 갱신) |
+| ConvLSTM | 28,497 | 4 | 178 | 0.00399 | 0.9865 | 0.00675 | +36.0% |
+| SimVP | 574,257 | 4 | 134 | 0.00358 | 0.9891 | 0.00600 | +42.5% |
+| PredRNN-V2 | 63,494 | 4 | 73 | 0.00516 | 0.9750 | 0.00877 | +17.1% |
 
 > 주의: MAE 는 정규화 값(0~1) 기준이라 절대값 자체보다 Persistence 대비 개선율이 읽기 쉽다.
 > `sec/epoch` 는 GPU 를 다른 작업과 공유하면 크게 흔들리므로 같은 실행 세션 안에서만 비교한다.
+
+측정 조건: Apple M1 Pro (Metal, `METAL`), TensorFlow 2.15.0, `mixed_float16`, 4 epoch, 세 모델을 같은 세션에서 순차 실행.
+Persistence 기준값은 세 모델 공통으로 val MAE 0.00623 / SSIM 0.9595, full-frame MAE 0.01091 / SSIM 0.9204 이다.
+
+| 관찰 | 근거 |
+| --- | --- |
+| SimVP 가 가장 정확하다 | val MAE 0.00358, 개선율 +42.5%, full-frame SSIM 0.9796 (세 모델 중 최고) |
+| ConvLSTM 은 파라미터 20분의 1로 근접한다 | 28,497 params 로 val MAE 0.00399, 개선율 +36.0% |
+| PredRNN-V2 는 가장 빠르지만 4 epoch 에서는 가장 뒤진다 | 73 s/epoch (space_to_depth 2 로 공간 1/4), val MAE 0.00516, 개선율 +17.1% |
+| 학습 곡선상 PredRNN-V2 는 수렴 전이다 | `results/PredRNN_V2/history.png` 의 val loss 가 4 epoch 에서도 하강 중 |
+
+> 참고: T4 (Colab) 실측은 아직 없다. Colab 에서 돌린 `MyDrive/nc_predict_output/<Model>` 을 `results/<Model>` 로 복사해 리포트를 다시 만들면 표와 페이지가 그 값으로 바뀐다.
 
 ---
 

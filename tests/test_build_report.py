@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import tempfile
+import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -265,3 +267,90 @@ def test_cli_writes_file_without_results(tmp_path: Path) -> None:
   out = tmp_path / "site" / "index.html"
   assert br.main(["--results-dir", str(tmp_path / "none"), "--out", str(out)]) == 0
   assert "결과 없음" in out.read_text(encoding="utf-8")
+
+
+# 배너·각주 판별에 쓰는 표시 문구 (구현과 같은 문자열이어야 한다).
+BANNER_MARK = "실행 조건이 모델마다 다르다."
+NOTE_SAME = "세 모델 모두 같은 프레임 캐시"
+NOTE_DIFF = "실행 조건이 모델마다 다르다 (metrics.json 의 config·data 절이 어긋난다)"
+
+
+class ConditionMismatchTest(unittest.TestCase):
+  """모델 간 실행 조건 일치 검사와 경고 배너 (I-2).
+
+  문서가 안내하는 'Colab 결과만 results/<Model>/ 로 복사' 절차는 모델마다 다른 조건을
+  섞을 수 있다. 그때 페이지가 조용히 같은 조건인 척하지 않는지 본다.
+  """
+
+  def setUp(self) -> None:
+    """임시 results 디렉터리를 만든다."""
+    tmp = tempfile.TemporaryDirectory()
+    self.addCleanup(tmp.cleanup)
+    self.root = Path(tmp.name)
+    make_results(self.root)
+
+  def _set_config(self, model: str, key: str, value: Any) -> None:
+    """fixture 의 config 값 하나를 바꾼다."""
+    path = self.root / model / "metrics.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["config"][key] = value
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+  def test_identical_conditions_have_no_banner(self) -> None:
+    """조건이 같으면 배너가 없고 각주는 '같은 조건' 문장을 쓴다."""
+    results = br.load_results(self.root)
+    self.assertEqual(br.find_condition_mismatches(results), [])
+    html_text = br.render_html(results, "2026-09-03T12:00:00+09:00")
+    self.assertNotIn(BANNER_MARK, html_text)
+    self.assertNotIn('class="banner"', html_text)
+    self.assertIn(NOTE_SAME, html_text)
+    self.assertNotIn(NOTE_DIFF, html_text)
+
+  def test_differing_hours_shows_banner_and_warns(self) -> None:
+    """config.hours 가 다르면 모델·키를 짚는 배너와 경고 로그가 나온다."""
+    self._set_config("PredRNN_V2", "hours", [6, 7, 8])
+    results = br.load_results(self.root)
+    self.assertEqual(br.find_condition_mismatches(results), [("PredRNN_V2", ["hours"])])
+    with self.assertLogs("build_report", level="WARNING") as captured:
+      html_text = br.render_html(results, "2026-09-03T12:00:00+09:00")
+    joined = " ".join(captured.output)
+    self.assertIn("PredRNN_V2", joined)
+    self.assertIn("hours", joined)
+    self.assertIn(BANNER_MARK, html_text)
+    banner = html_text.split('class="banner"', 1)[1].split("</div>", 1)[0]
+    self.assertIn("PredRNN-V2", banner)
+    self.assertIn("hours", banner)
+    self.assertIn(NOTE_DIFF, html_text)
+    self.assertNotIn(NOTE_SAME, html_text)
+    parser = TagBalance()
+    parser.feed(html_text)
+    parser.close()
+    self.assertEqual((parser.errors, parser.stack), ([], []))
+
+  def test_differing_data_key_is_detected(self) -> None:
+    """data 절(정규화 범위)이 달라도 잡는다."""
+    path = self.root / "PredRNN_V2" / "metrics.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["data"]["gmax"] = 20000.0
+    path.write_text(json.dumps(data), encoding="utf-8")
+    self.assertEqual(br.find_condition_mismatches(br.load_results(self.root)),
+                     [("PredRNN_V2", ["gmax"])])
+
+  def test_single_result_has_nothing_to_compare(self) -> None:
+    """결과가 0~1개면 비교 대상이 없어 빈 목록이다."""
+    self.assertEqual(br.find_condition_mismatches([]), [])
+    self.assertEqual(br.find_condition_mismatches(br.load_results(self.root)[:1]), [])
+
+  def test_epochs_difference_is_not_a_mismatch(self) -> None:
+    """epochs·batch·lr 는 모델마다 달라도 되는 값이라 배너를 띄우지 않는다."""
+    self._set_config("PredRNN_V2", "epochs", 99)
+    self.assertEqual(br.find_condition_mismatches(br.load_results(self.root)), [])
+
+
+def test_cli_returns_1_when_output_is_unwritable(tmp_path: Path) -> None:
+  """출력 경로의 부모가 일반 파일이면 예외를 삼키고 1 을 돌려준다."""
+  blocker = tmp_path / "blocker"
+  blocker.write_text("not a directory", encoding="utf-8")
+  out = blocker / "site" / "index.html"
+  assert br.main(["--results-dir", str(make_results(tmp_path / "results")), "--out", str(out)]) == 1
+  assert blocker.read_text(encoding="utf-8") == "not a directory"

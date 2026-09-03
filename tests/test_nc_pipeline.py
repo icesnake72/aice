@@ -238,6 +238,18 @@ class FigureNamesTest(unittest.TestCase):
     self.assertEqual(set(m.FIGURE_NAMES), {"samples", "hourly_mean", "history", "full_frame"})
     self.assertTrue(all(v.endswith(".png") for v in m.FIGURE_NAMES.values()))
 
+  def test_report_constants_match_pipeline_contract(self) -> None:
+    """tools/build_report.py 가 다시 선언한 상수가 파이프라인 계약과 같다.
+
+    리포트는 표준 라이브러리만 쓰려고 metrics 파일명과 figures 키를 따로 갖는다.
+    파이프라인에서 이름을 바꾸면 리포트가 조용히 빈 페이지를 만드므로 여기서 잠근다.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+    import build_report as br
+
+    self.assertEqual(br.METRICS_NAME, m.METRICS_NAME)
+    self.assertEqual(set(br.FIGURE_KEYS), set(m.FIGURE_NAMES))
+
   def test_save_and_show_uses_given_filename(self) -> None:
     """전달한 파일명 그대로 저장한다 (확장자 중복 없음)."""
     import matplotlib

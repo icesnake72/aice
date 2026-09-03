@@ -1,3 +1,12 @@
+# Coding History
+
+## 2026-09-03 최종 리뷰 수정 웨이브
+- `predrnn_v2_predict_colab.py` docstring 정정: 라이선스를 "LICENSE 파일 없음(2026-09-03 확인)", LayerNorm 미사용 사유를 "비교 조건 단순화" 로 (`doc/model_comparison.md` 와 일치)
+- `tools/build_report.py`: 모델 간 실행 조건 검사 `find_condition_mismatches` 추가 — 어긋나면 경고 로그 + 헤더 아래 배너 + 7절 각주 조건부 문장, 출력 쓰기 `OSError` 를 잡아 종료 코드 1
+- `nc_pipeline` 의 `TakeLastFrame.call` 에 `@tf.autograph.experimental.do_not_convert` (노트북 AutoGraph 경고 제거), `build_colab_notebook._write` 가 수작업 노트북 덮어쓰기 거부
+- `doc/nc_predict_pipeline.md` 끊긴 테스트 링크 수정, 이 파일의 제목·항목 순서 정리, PredRNN 셀 테스트 입력을 난수로 교체
+- 노트북 5개와 `site/index.html` 재생성, 테스트 86건이 Keras 2·3 양쪽에서 통과
+
 ## 2026-09-03 세 모델 로컬 실행 결과 반영
 - ConvLSTM / SimVP / PredRNN-V2 를 M1 Pro(Metal, mixed_float16)에서 4 epoch 씩 순차 실행 → `results/<Model>/` (metrics.json, png, csv 만 커밋)
 - val MAE: SimVP 0.00358 (+42.5%) < ConvLSTM 0.00399 (+36.0%) < PredRNN-V2 0.00516 (+17.1%), Persistence 0.00623
@@ -5,7 +14,14 @@
 - `doc/model_comparison.md` 7.2 측정값 표와 관찰 요약 채움
 - Colab T4 실측은 미완 (사용자가 직접 실행 후 results/ 교체 예정)
 
-# Coding History
+## 2026-09-03 Δ readout 0 초기화 통일
+
+- 공통 헬퍼 `nc_pipeline.delta_readout(x, kernel_size, name)` 추가: Δ readout Conv2D 를 `kernel_initializer="zeros"` 로 고정
+- 세 모델(ConvLSTM k=3, SimVP k=1, PredRNN-V2 k=1) 이 이 헬퍼를 공유하고 readout 레이어 이름을 `delta` 로 통일
+- 이유: readout 앞 활성 스케일이 모델마다 달라(GroupNorm vs tanh) 기본 glorot 초기화로는 초기 Δ 크기가 달라 비교 조건이 훼손됐다
+- 효과: 학습 시작 시 Δ=0 이라 세 모델 모두 정확히 Persistence(입력 마지막 프레임)에서 출발한다
+- 테스트: 모델별 `test_initial_output_is_persistence` 추가 (가중치 조작 없이 초기 출력 == 입력 마지막 프레임), Keras 2·3 양쪽 77건 통과
+- 검증: SimVP 1 epoch smoke 결과 val MAE 0.02190 < Persistence 0.02266 (이전에는 Persistence 보다 4배 나빴다)
 
 ## 2026-09-03 모델 비교 문서
 - `doc/model_comparison.md` 신규: 세 모델 비교표(논문·공식 구현·라이선스·params), 공통 실험 조건, 모델별 mermaid 구조도와 공식 대비 적응표
@@ -62,12 +78,3 @@
 - 테스트: `tests/test_nc_predict_colab.py` 19건 (합성 데이터로 순수 함수·모델 가중치 이전 검증) 통과
 - 검증: Keras 2(TF 2.15, M1 GPU) 와 Keras 3(TF 2.21, CPU venv) 양쪽에서 smoke 실행(`--hours 23 --epochs 1`) 정상 완료
 - 버그 수정: Keras 3 는 `keras.optimizers.legacy.Adam` 생성 시 ImportError 를 던지므로 getattr 대신 try/except 로 처리
-
-## 2026-09-03 Δ readout 0 초기화 통일
-
-- 공통 헬퍼 `nc_pipeline.delta_readout(x, kernel_size, name)` 추가: Δ readout Conv2D 를 `kernel_initializer="zeros"` 로 고정
-- 세 모델(ConvLSTM k=3, SimVP k=1, PredRNN-V2 k=1) 이 이 헬퍼를 공유하고 readout 레이어 이름을 `delta` 로 통일
-- 이유: readout 앞 활성 스케일이 모델마다 달라(GroupNorm vs tanh) 기본 glorot 초기화로는 초기 Δ 크기가 달라 비교 조건이 훼손됐다
-- 효과: 학습 시작 시 Δ=0 이라 세 모델 모두 정확히 Persistence(입력 마지막 프레임)에서 출발한다
-- 테스트: 모델별 `test_initial_output_is_persistence` 추가 (가중치 조작 없이 초기 출력 == 입력 마지막 프레임), Keras 2·3 양쪽 77건 통과
-- 검증: SimVP 1 epoch smoke 결과 val MAE 0.02190 < Persistence 0.02266 (이전에는 Persistence 보다 4배 나빴다)

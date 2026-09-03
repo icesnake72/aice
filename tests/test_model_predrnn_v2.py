@@ -49,15 +49,21 @@ class PredRNNV2ModelTest(unittest.TestCase):
     self.assertEqual(MODEL_NAME, "PredRNN_V2")
 
   def test_stlstm_cell_shapes(self) -> None:
-    """셀은 (h', c', m', Δc, Δm) 5개를 모두 (B, H, W, hid) 로 돌려준다."""
+    """셀은 (h', c', m', Δc, Δm) 5개를 모두 (B, H, W, hid) 로 돌려준다.
+
+    입력을 0 으로 주면 bias 가 zeros 라 출력도 정확히 0 이 되어 finite 단언이 공허해진다.
+    난수를 넣어 gate 조합·decoupling 항까지 실제 값으로 지나가게 한다.
+    """
     import tensorflow as tf
 
+    rng = np.random.default_rng(0)
     cell = STLSTMCell(8, 3)
-    x = tf.zeros((2, 16, 16, 4), tf.float32)
-    h = tf.zeros((2, 16, 16, 8), tf.float32)
-    c = tf.zeros((2, 16, 16, 8), tf.float32)
-    m = tf.zeros((2, 16, 16, 8), tf.float32)
+    x = tf.constant(rng.standard_normal((2, 16, 16, 4), dtype=np.float32))
+    h = tf.constant(rng.standard_normal((2, 16, 16, 8), dtype=np.float32))
+    c = tf.constant(rng.standard_normal((2, 16, 16, 8), dtype=np.float32))
+    m = tf.constant(rng.standard_normal((2, 16, 16, 8), dtype=np.float32))
     outs = cell(x, h, c, m)
+    self.assertGreater(float(tf.reduce_max(tf.abs(outs[0]))), 0.0)
     self.assertEqual(len(outs), 5)
     for tensor in outs:
       self.assertEqual(tuple(tensor.shape), (2, 16, 16, 8))

@@ -184,13 +184,18 @@ def strip_entry_points(code: str) -> str:
   return "".join(lines[:cut]).rstrip("\n") + "\n"
 
 
+def reject_handwritten(name: str) -> None:
+  """파일 이름이 수작업 노트북이면 ValueError 를 던진다 (덮어쓰기 방지)."""
+  if name in HANDWRITTEN_NOTEBOOKS:
+    raise ValueError(f"{name} 은 수작업 노트북이라 생성기가 덮어쓰지 않는다.")
+
+
 def notebook_path(display: str, profile: str, root: Path) -> Path:
   """생성 노트북 경로. 수작업 노트북 이름과 겹치면 거부한다."""
   if profile not in PROFILES:
     raise ValueError(f"profile 은 {PROFILES} 중 하나여야 한다: {profile}")
   name = f"{display}_prediction{'_colab' if profile == 'colab' else ''}.ipynb"
-  if name in HANDWRITTEN_NOTEBOOKS:
-    raise ValueError(f"{name} 은 수작업 노트북이라 생성기가 덮어쓰지 않는다.")
+  reject_handwritten(name)
   return root / name
 
 
@@ -262,7 +267,8 @@ def build_notebook(pipeline_src: Path, model_src: Path, display: str, profile: s
 
 
 def _write(nb: dict, out: Path) -> None:
-  """노트북 JSON 을 파일로 쓴다."""
+  """노트북 JSON 을 파일로 쓴다. `--out` 으로 수작업 노트북을 가리켜도 덮어쓰지 않는다."""
+  reject_handwritten(out.name)
   out.parent.mkdir(parents=True, exist_ok=True)
   out.write_text(json.dumps(nb, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
   n_code = sum(c["cell_type"] == "code" for c in nb["cells"])

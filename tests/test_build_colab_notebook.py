@@ -132,6 +132,21 @@ class NotebookPathTest(unittest.TestCase):
     with self.assertRaises(ValueError):
       g.notebook_path("ConvLSTM", "local", root)
 
+  def test_out_cannot_overwrite_handwritten_notebook(self) -> None:
+    """--out 으로 수작업 노트북을 가리켜도 쓰지 않고 1 을 돌려준다."""
+    with tempfile.TemporaryDirectory() as d:
+      out = Path(d) / "ConvLSTM_prediction.ipynb"
+      out.write_text("수작업 노트북", encoding="utf-8")
+      code = g.main(["--model", "convlstm", "--profile", "colab", "--out", str(out)])
+      self.assertEqual(code, 1)
+      self.assertEqual(out.read_text(encoding="utf-8"), "수작업 노트북")
+
+  def test_write_refuses_handwritten_name(self) -> None:
+    """_write 자체가 수작업 노트북 이름을 거부한다 (경로를 어디서 받든 동일)."""
+    with tempfile.TemporaryDirectory() as d:
+      with self.assertRaises(ValueError):
+        g._write({"cells": []}, Path(d) / "ConvLSTM_prediction.ipynb")
+
   def test_notebook_path_by_profile(self) -> None:
     """profile 에 따라 _colab 접미사가 붙는다."""
     root = Path("/tmp/repo")

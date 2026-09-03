@@ -4,12 +4,12 @@
 ConvLSTM · SimVP 와 같은 데이터·손실·지표로 비교하기 위한 구성이다.
 
 모델: Wang et al., "PredRNN: A Recurrent Neural Network for Spatiotemporal Predictive
-Learning" (TPAMI 2022, arXiv:2103.09504). 공식 구현 github.com/thuml/predrnn-pytorch (MIT).
+Learning" (TPAMI 2022, arXiv:2103.09504). 공식 구현 github.com/thuml/predrnn-pytorch (LICENSE 파일 없음, 2026-09-03 확인).
 우리 적응
   - 다음 1 프레임만 예측하므로 reverse scheduled sampling 은 쓰지 않는다.
   - filter_size 는 공식 5 대신 3 (ConvLSTM 과 같은 수용영역 조건으로 맞추기 위해).
   - patch_size 2 (space-to-depth 로 96->48, 250->125, 채널 4) 로 시간 축 비용을 줄인다.
-  - LayerNorm 은 쓰지 않는다 (Metal 에서의 호환·속도 문제). 대신 conv bias 를 살린다.
+  - LayerNorm 은 쓰지 않는다 (비교 조건 단순화, 계획 0.4 절 스펙). 대신 conv bias 를 살린다.
 
 Colab 사용법
   1) 로컬에서 데이터 다운로드 (AWS Open Data, 익명 접근)

@@ -440,4 +440,4 @@ python3 tools/build_colab_notebook.py --model simvp --profile colab
 - Colab 스크립트: [../nc_predict_colab.py](../nc_predict_colab.py)
 - Colab 노트북 (자동 생성): [../ConvLSTM_prediction_colab.ipynb](../ConvLSTM_prediction_colab.ipynb)
 - 노트북 생성기: [../tools/build_colab_notebook.py](../tools/build_colab_notebook.py)
-- 단위 테스트: [../tests/test_nc_predict_colab.py](../tests/test_nc_predict_colab.py)
+- 단위 테스트: [../tests/test_nc_pipeline.py](../tests/test_nc_pipeline.py)

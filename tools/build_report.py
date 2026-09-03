@@ -33,6 +33,15 @@ MODEL_LABELS: dict[str, str] = {
   "SimVP": "SimVP",
   "PredRNN_V2": "PredRNN-V2",
 }
+# nc_pipeline 의 계약 상수를 리포트 쪽에서 다시 선언한다 (표준 라이브러리만 쓰기 위해).
+# 두 정의가 어긋나면 리포트가 조용히 비므로 tests/test_build_report.py 가 일치를 잠근다.
+METRICS_NAME = "metrics.json"
+FIGURE_KEYS: tuple[str, ...] = ("samples", "hourly_mean", "history", "full_frame")
+# 모델 간 실행 조건 일치 검사 대상 (다르면 배너 + 경고).
+CONDITION_CONFIG_KEYS: tuple[str, ...] = (
+  "in_frames", "target", "patch", "stride", "filters", "hours", "seed")
+CONDITION_DATA_KEYS: tuple[str, ...] = (
+  "n_frames", "period", "segments", "gmin", "gmax", "train_period", "val_period")
 NO_RESULT = "결과 없음"
 NO_FIGURE = "그림 없음"
 DASH = "—"
@@ -100,6 +109,18 @@ h3 { font-size: 16px; margin: 0 0 4px; }
 p { margin: 0 0 12px; }
 .meta { color: var(--text-secondary); font-size: 13px; margin: 0; }
 .lead { color: var(--text-secondary); }
+.banner {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--series-2);
+  border-radius: 8px;
+  background: var(--surface-1);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.banner strong { color: var(--series-2); }
+.banner .detail { display: block; margin-top: 6px; color: var(--text-secondary); font-size: 13px; }
 section { margin-top: 32px; }
 .card {
   background: var(--surface-1);
@@ -247,7 +268,7 @@ def load_results(results_dir: Path) -> list[dict[str, Any]]:
     logger.warning("results 디렉터리가 없다: %s", results_dir)
     return results
   for child in sorted(results_dir.iterdir()):
-    metrics_path = child / "metrics.json"
+    metrics_path = child / METRICS_NAME
     if not child.is_dir() or not metrics_path.is_file():
       continue
     try:
@@ -610,8 +631,14 @@ def _is_plain_filename(name: Any) -> bool:
 
 
 def _figure(result: dict[str, Any] | None, key: str, caption: str) -> str:
-  """metrics.figures[key] 그림을 base64 로 넣거나 자리 표시를 만든다."""
+  """metrics.figures[key] 그림을 base64 로 넣거나 자리 표시를 만든다.
+
+  `key` 는 FIGURE_KEYS 중 하나여야 한다 (파이프라인의 figures 계약과 같은 집합).
+  """
   uri = None
+  if key not in FIGURE_KEYS:
+    logger.warning("알 수 없는 그림 키라 무시한다: %r", key)
+    result = None
   if result is not None:
     name = _get(result, "figures", key)
     if _is_plain_filename(name):
@@ -626,6 +653,53 @@ def _figure(result: dict[str, Any] | None, key: str, caption: str) -> str:
   return (
     f'<figure><img src="{uri}" alt="{esc(caption)}" />'
     f'<figcaption>{esc(caption)}</figcaption></figure>'
+  )
+
+
+def _canonical(value: Any) -> Any:
+  """비교용 정규화: tuple 을 list 로 바꿔 JSON 값과 같은 모양으로 만든다."""
+  if isinstance(value, (list, tuple)):
+    return [_canonical(v) for v in value]
+  if isinstance(value, dict):
+    return {k: _canonical(v) for k, v in sorted(value.items())}
+  return value
+
+
+def find_condition_mismatches(results: list[dict[str, Any]]) -> list[tuple[str, list[str]]]:
+  """첫 결과를 기준으로 실행 조건이 다른 모델과 그 키 이름을 찾는다.
+
+  `config` 는 CONDITION_CONFIG_KEYS, `data` 는 CONDITION_DATA_KEYS 만 본다 (epochs·batch·lr
+  처럼 모델별로 달라도 되는 값은 제외). 반환값은 (모델 이름, 다른 키 목록) 목록이며 모든
+  결과가 같은 조건이면 빈 리스트다. 결과가 2개 미만이면 비교 대상이 없으므로 빈 리스트다.
+  """
+  if len(results) < 2:
+    return []
+  base = results[0]
+  mismatches: list[tuple[str, list[str]]] = []
+  for result in results[1:]:
+    diff = [key for key in CONDITION_CONFIG_KEYS
+            if _canonical(_get(base, "config", key)) != _canonical(_get(result, "config", key))]
+    diff += [key for key in CONDITION_DATA_KEYS
+             if _canonical(_get(base, "data", key)) != _canonical(_get(result, "data", key))]
+    if diff:
+      mismatches.append((str(result.get("model", "?")), diff))
+  return mismatches
+
+
+def _mismatch_banner(base_name: str, mismatches: Sequence[tuple[str, list[str]]]) -> str:
+  """실행 조건 불일치 경고 배너 (일치하면 빈 문자열)."""
+  if not mismatches:
+    return ""
+  detail = " / ".join(
+    f"{_label(name)}: {', '.join(keys)}" for name, keys in mismatches
+  )
+  return (
+    '<div class="banner" role="note">'
+    "<strong>실행 조건이 모델마다 다르다.</strong> "
+    f"아래 표와 차트의 값은 서로 다른 조건에서 나온 것이므로 모델끼리 직접 비교할 수 없고 "
+    f"모델별로 따로 읽어야 한다. 1절 데이터 요약은 {esc(_label(base_name))} 기준이다."
+    f'<span class="detail">{esc(_label(base_name))} 과(와) 다른 항목 — {esc(detail)}</span>'
+    "</div>"
   )
 
 
@@ -782,11 +856,18 @@ def _data_figures(results: Sequence[dict[str, Any]]) -> str:
   )
 
 
-def _notes_section() -> str:
-  """방법론 각주."""
-  items = [
+def _notes_section(consistent: bool = True) -> str:
+  """방법론 각주. `consistent` 가 False 면 첫 항목을 조건 불일치 문장으로 바꾼다."""
+  first = (
     "세 모델 모두 같은 프레임 캐시·같은 시간 분할(앞 구간 학습, 뒤 구간 검증)·같은 정규화 "
-    "범위(gmin~gmax)를 쓴다. 분할과 정규화는 공통 모듈에서만 정의한다.",
+    "범위(gmin~gmax)를 쓴다. 분할과 정규화는 공통 모듈에서만 정의한다."
+    if consistent else
+    "실행 조건이 모델마다 다르다 (metrics.json 의 config·data 절이 어긋난다). 프레임 캐시·"
+    "시간 분할·정규화 범위가 같다는 전제가 깨졌으므로 표와 차트는 모델별로 따로 읽어야 하고 "
+    "모델끼리 직접 비교하면 안 된다."
+  )
+  items = [
+    first,
     "출력은 residual head 다: 예측 = 마지막 입력 프레임 + Δ. 모델은 Δ 만 학습한다.",
     "손실은 세 모델 공통으로 0.5·MAE + 0.5·(1 − SSIM) 이며, 혼합 정밀도에서도 Δ 와 출력은 "
     "float32 로 계산한다.",
@@ -813,6 +894,12 @@ def render_html(results: list[dict[str, Any]], generated_at: str) -> str:
   결과가 없어도 항상 문서를 만들고, 없는 모델은 '결과 없음' 으로 표시한다.
   외부 리소스(스크립트/스타일시트/이미지 URL)는 쓰지 않는다.
   """
+  mismatches = find_condition_mismatches(results)
+  if mismatches:
+    for name, keys in mismatches:
+      logger.warning("실행 조건이 기준 모델(%s)과 다르다 — %s: %s",
+                     str(results[0].get("model", "?")), name, ", ".join(keys))
+  banner = _mismatch_banner(str(results[0].get("model", "?")), mismatches) if results else ""
   by_model = {str(r["model"]): r for r in results}
   names = _model_names(results)
   done = [n for n in names if n in by_model]
@@ -825,6 +912,7 @@ def render_html(results: list[dict[str, Any]], generated_at: str) -> str:
     f'<p class="meta">GK2A AMI sw038 다음 프레임 예측 · {esc(subtitle)} · '
     f"생성 시각 {esc(generated_at)}</p>",
     "</header>",
+    banner,
     _section("1. 데이터 요약", "세 모델이 공유하는 입력 데이터와 분할", _summary_section(results)),
     _section("2. 핵심 비교", "학습 비용과 검증·전체 프레임 성능", _comparison_table(names, by_model)),
     _section("3. 검증 지표 비교", "점선은 Persistence 베이스라인 기준선이다",
@@ -832,7 +920,7 @@ def render_html(results: list[dict[str, Any]], generated_at: str) -> str:
     _section("4. 학습 곡선", "epoch 별 학습·검증 손실 (축 하나)", _history_section(names, by_model)),
     _section("5. 모델별 결과", "전체 프레임 예측, 학습 곡선, 실행 환경", _model_cards(names, by_model)),
     _section("6. 데이터 그림", "모델과 무관한 공통 데이터 그림", _data_figures(results)),
-    _section("7. 방법론", "비교가 공정한 이유", _notes_section()),
+    _section("7. 방법론", "비교가 공정한 이유", _notes_section(not mismatches)),
     f'<footer>외부 리소스 없이 생성된 단일 HTML · tools/build_report.py · {esc(generated_at)}</footer>',
   ])
   return (
@@ -869,8 +957,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
   generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
   page = render_html(results, generated_at)
-  args.out.parent.mkdir(parents=True, exist_ok=True)
-  args.out.write_text(page, encoding="utf-8")
+  try:
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(page, encoding="utf-8")
+  except OSError as exc:
+    logger.error("HTML 을 쓰지 못했다 (%s): %s", args.out, exc)
+    return 1
   logger.info("생성 완료: %s (%.1f KB)", args.out, len(page.encode("utf-8")) / 1024)
   return 0
 

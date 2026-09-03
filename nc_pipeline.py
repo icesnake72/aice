@@ -577,6 +577,7 @@ def ssim_mae_loss(y_true, y_pred):
 
 def make_take_last_frame_layer():
   """TakeLastFrame 레이어 클래스를 지연 생성한다 (모듈 import 시 tensorflow 를 강제하지 않기 위해)."""
+  import tensorflow as tf
   from tensorflow import keras
 
   class TakeLastFrame(keras.layers.Layer):
@@ -586,8 +587,15 @@ def make_take_last_frame_layer():
     compute_output_shape 를 직접 주면 Keras 2/3 양쪽에서 안전하다.
     """
 
-    def call(self, x):
-      """시간 축의 마지막 원소를 고른다."""
+    @tf.autograph.experimental.do_not_convert
+    def call(self, x, training=None):
+      """시간 축의 마지막 원소를 고른다.
+
+      제어 흐름이 없어 AutoGraph 변환이 필요 없다. 노트북에서는 이 클래스의 소스 파일이
+      없어 변환이 실패하고 경고가 뜨므로 변환 자체를 끈다. 데코레이터가 시그니처를
+      `(*args, **kwargs)` 로 감싸 Keras 가 `training` 을 넘기므로 인자로 받아 무시한다.
+      """
+      del training
       return x[:, -1]
 
     def compute_output_shape(self, input_shape):

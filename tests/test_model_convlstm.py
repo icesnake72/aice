@@ -19,6 +19,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nc_predict_colab import MODEL_NAME, build_model  # noqa: E402
 
 
+def _dtype_name(dtype) -> str:
+  """dtype 이름을 문자열로 정규화한다 (Keras 2 는 tf.DType, Keras 3 는 str)."""
+  return getattr(dtype, "name", None) or str(dtype)
+
+
 class ConvLSTMModelTest(unittest.TestCase):
   """TensorFlow 가 필요한 모델 테스트 (CPU, 소형)."""
 
@@ -47,6 +52,33 @@ class ConvLSTMModelTest(unittest.TestCase):
     model = build_model(in_frames=2, filters=2, h=16, w=16)
     self.assertIsNotNone(model.optimizer)
     self.assertIs(model.loss, nc_pipeline.ssim_mae_loss)
+
+  def test_mixed_precision_output_float32(self) -> None:
+    """mixed_float16 정책에서도 Δ 와 최종 출력은 float32 로 유지된다."""
+    from tensorflow import keras
+
+    keras.mixed_precision.set_global_policy("mixed_float16")
+    try:
+      model = build_model(in_frames=2, filters=2, h=16, w=16)
+      hidden = [l for l in model.layers if l.__class__.__name__ == "ConvLSTM2D"]
+      readout = [l for l in model.layers if l.__class__.__name__ == "Conv2D"]
+      merge = [l for l in model.layers if l.__class__.__name__ == "Add"]
+      self.assertEqual((len(hidden), len(readout), len(merge)), (2, 1, 1))
+
+      # 정책이 실제로 걸렸는지 먼저 본다. 은닉층이 float32 면 이 테스트는 공허해진다.
+      for layer in hidden:
+        self.assertEqual(_dtype_name(layer.compute_dtype), "float16", layer.name)
+
+      # Δ(Conv2D readout) -> 잔차 합(Add) -> 모델 출력은 전부 float32 여야 한다
+      self.assertEqual(_dtype_name(readout[0].compute_dtype), "float32")
+      self.assertEqual(_dtype_name(readout[0].output.dtype), "float32")
+      self.assertEqual(_dtype_name(merge[0].output.dtype), "float32")
+      self.assertEqual(_dtype_name(model.output.dtype), "float32")
+
+      pred = model.predict(np.zeros((1, 2, 16, 16, 1), np.float32), verbose=0)
+      self.assertEqual(pred.dtype, np.float32)
+    finally:   # 전역 정책을 되돌리지 않으면 뒤따르는 테스트가 오염된다
+      keras.mixed_precision.set_global_policy("float32")
 
 
 if __name__ == "__main__":

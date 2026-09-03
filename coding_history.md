@@ -1,5 +1,13 @@
 # Coding History
 
+## 2026-09-03 모델 비교 문서
+- `doc/model_comparison.md` 신규: 세 모델 비교표(논문·공식 구현·라이선스·params), 공통 실험 조건, 모델별 mermaid 구조도와 공식 대비 적응표
+- 실행(로컬 CLI·Colab 노트북·재생성·테스트) → 결과 수집 → `tools/build_report.py` → Netlify 배포 절차를 한 문서로 정리
+- params 확정: ConvLSTM 28,497 / SimVP 574,257 / PredRNN_V2 63,494 (`filters=16`). 같은 hidden 폭일 뿐 용량을 맞춘 비교는 아님을 명시
+- 7.2 측정값 표는 세 모델 로컬 학습 완료 후 채운다 (현재 `(실행 후 갱신)`)
+- `README.md` 신규: 한 줄 소개, 빠른 시작, 파일 구조 표, 문서 링크
+- `doc/nc_predict_pipeline.md` 7.5: 파일 표에 `nc_pipeline.py`·모델 3종·`tools/build_report.py`·`netlify.toml`·생성 노트북 5개 반영, 결과 경로를 `results/<Model>/` · `MyDrive/nc_predict_output/<Model>/` 로 수정
+
 ## 2026-09-03 nc_pipeline 분리
 - ConvLSTM·SimVP·PredRNN-V2 를 같은 조건으로 비교하려고 데이터/학습/평가를 `nc_pipeline.py` 로 분리
 - `nc_predict_colab.py` 는 `MODEL_NAME` + `build_model` + `main` 만 남는 얇은 엔트리가 됨 (28,497 params 동일)

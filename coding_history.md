@@ -47,3 +47,12 @@
 - 테스트: `tests/test_nc_predict_colab.py` 19건 (합성 데이터로 순수 함수·모델 가중치 이전 검증) 통과
 - 검증: Keras 2(TF 2.15, M1 GPU) 와 Keras 3(TF 2.21, CPU venv) 양쪽에서 smoke 실행(`--hours 23 --epochs 1`) 정상 완료
 - 버그 수정: Keras 3 는 `keras.optimizers.legacy.Adam` 생성 시 ImportError 를 던지므로 getattr 대신 try/except 로 처리
+
+## 2026-09-03 Δ readout 0 초기화 통일
+
+- 공통 헬퍼 `nc_pipeline.delta_readout(x, kernel_size, name)` 추가: Δ readout Conv2D 를 `kernel_initializer="zeros"` 로 고정
+- 세 모델(ConvLSTM k=3, SimVP k=1, PredRNN-V2 k=1) 이 이 헬퍼를 공유하고 readout 레이어 이름을 `delta` 로 통일
+- 이유: readout 앞 활성 스케일이 모델마다 달라(GroupNorm vs tanh) 기본 glorot 초기화로는 초기 Δ 크기가 달라 비교 조건이 훼손됐다
+- 효과: 학습 시작 시 Δ=0 이라 세 모델 모두 정확히 Persistence(입력 마지막 프레임)에서 출발한다
+- 테스트: 모델별 `test_initial_output_is_persistence` 추가 (가중치 조작 없이 초기 출력 == 입력 마지막 프레임), Keras 2·3 양쪽 77건 통과
+- 검증: SimVP 1 epoch smoke 결과 val MAE 0.02190 < Persistence 0.02266 (이전에는 Persistence 보다 4배 나빴다)

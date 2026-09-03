@@ -25,6 +25,7 @@ import sys
 
 from nc_pipeline import (
   compile_model,
+  delta_readout,
   main_for_model,
   residual_head,
 )
@@ -50,8 +51,8 @@ def build_model(in_frames: int, filters: int, h: int, w: int, lr: float = 1e-3):
                         return_sequences=True, activation="tanh")(inp)
   x = layers.ConvLSTM2D(filters, (3, 3), padding="same",
                         return_sequences=False, activation="tanh")(x)
-  # mixed precision 에서도 Δ 와 잔차 합은 float32 로 유지한다 (손실 수치 안정성)
-  delta = layers.Conv2D(1, (3, 3), padding="same", activation=None, dtype="float32")(x)
+  # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
+  delta = delta_readout(x, kernel_size=3)
   return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
 
 

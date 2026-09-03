@@ -30,6 +30,7 @@ import sys
 
 from nc_pipeline import (
   compile_model,
+  delta_readout,
   main_for_model,
   make_take_last_frame_layer,
   residual_head,
@@ -161,9 +162,8 @@ def build_model(in_frames: int, filters: int, h: int, w: int, lr: float = 1e-3):
   hid = layers.Concatenate(name="dec_skip")([hid, take_last_frame(name="enc1_last")(enc1)])
   hid = conv_sc(hid_S, 1, False, "dec_sc2")(hid)
 
-  # mixed precision 에서도 Δ 와 잔차 합은 float32 로 유지한다 (손실 수치 안정성)
-  delta = layers.Conv2D(1, 1, padding="same", activation=None, dtype="float32",
-                        name=DELTA_LAYER_NAME)(hid)
+  # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
+  delta = delta_readout(hid, kernel_size=1, name=DELTA_LAYER_NAME)
   return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
 
 

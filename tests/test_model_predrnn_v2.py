@@ -98,6 +98,13 @@ class PredRNNV2ModelTest(unittest.TestCase):
     pred = model.predict(x, verbose=0)
     np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
 
+  def test_initial_output_is_persistence(self) -> None:
+    """가중치를 건드리지 않은 초기 모델의 출력 = 입력 마지막 프레임 (Δ readout 0 초기화)."""
+    model = build_model(4, 2, 32, 32)
+    x, _ = _synthetic(2, 4, 32)
+    pred = model.predict(x, verbose=0)
+    np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
+
   def test_mixed_precision_output_float32(self) -> None:
     """mixed_float16 정책에서도 Δ·출력·decoupling loss 는 float32 로 유지된다.
 

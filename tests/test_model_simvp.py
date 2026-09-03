@@ -64,6 +64,13 @@ class SimVPModelTest(unittest.TestCase):
     out = model.predict(x, verbose=0)
     np.testing.assert_allclose(out, x[:, -1], atol=1e-6)
 
+  def test_initial_output_is_persistence(self) -> None:
+    """가중치를 건드리지 않은 초기 모델의 출력 = 입력 마지막 프레임 (Δ readout 0 초기화)."""
+    model = build_model(2, 2, 16, 16)
+    x = np.random.default_rng(1).random((2, 2, 16, 16, 1)).astype(np.float32)
+    pred = model.predict(x, verbose=0)
+    np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
+
   def test_mixed_precision_output_float32(self) -> None:
     """mixed_float16 정책에서도 Δ 와 최종 출력은 float32 로 유지된다.
 

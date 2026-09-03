@@ -36,6 +36,7 @@ from tensorflow import keras
 
 from nc_pipeline import (
   compile_model,
+  delta_readout,
   main_for_model,
   residual_head,
 )
@@ -276,9 +277,8 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   # patch 채널(=PATCH_SIZE^2)로 되돌린 뒤 원해상도로 펴고 마지막에 1채널 Δ 를 만든다.
   y = layers.Conv2D(PATCH_SIZE * PATCH_SIZE, (1, 1), padding="same", name="to_pixel")(feat)
   y = DepthToSpace(PATCH_SIZE, name="from_patch")(y)
-  # mixed precision 에서도 Δ 와 잔차 합은 float32 로 유지한다 (손실 수치 안정성)
-  delta = layers.Conv2D(1, (1, 1), padding="same", activation=None,
-                        dtype="float32", name="delta")(y)
+  # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
+  delta = delta_readout(y, kernel_size=1, name="delta")
   return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
 
 

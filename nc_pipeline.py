@@ -613,6 +613,27 @@ def residual_head(inp, delta):
   return layers.Add(dtype="float32")([TakeLastFrame(dtype="float32")(inp), delta])
 
 
+def delta_readout(x, kernel_size: int = 1, name: str = "delta"):
+  """Δ(변화량) readout Conv2D. 세 모델이 공유한다.
+
+  kernel_initializer="zeros" 라 학습 시작 시 Δ=0, 즉 출력이 정확히 Persistence(입력 마지막 프레임)에서
+  출발한다. 모델마다 readout 앞 활성 스케일이 달라(GroupNorm vs tanh) 기본 초기화로는 출발점이 달라지므로
+  비교 조건을 통일하기 위해 고정한다. mixed_float16 에서도 Δ 는 float32 로 계산한다.
+
+  Args:
+    x: (B, H, W, C) readout 직전 특징 텐서
+    kernel_size: conv 커널 크기 (ConvLSTM 은 3, SimVP·PredRNN-V2 는 1)
+    name: 레이어 이름. 테스트가 이 이름으로 readout 을 찾는다
+  Returns:
+    (B, H, W, 1) float32 Δ 텐서
+  """
+  from tensorflow.keras import layers
+
+  return layers.Conv2D(1, (kernel_size, kernel_size), padding="same", activation=None,
+                       dtype="float32", kernel_initializer="zeros",
+                       bias_initializer="zeros", name=name)(x)
+
+
 def make_optimizer(lr: float):
   """Keras 2 는 legacy.Adam(Apple Silicon 에서 빠름), Keras 3 는 표준 Adam.
 

@@ -45,6 +45,13 @@ class ConvLSTMModelTest(unittest.TestCase):
     self.assertEqual(pred.shape, (1, 16, 16, 1))
     self.assertTrue(np.isfinite(pred).all())
 
+  def test_initial_output_is_persistence(self) -> None:
+    """가중치를 건드리지 않은 초기 모델의 출력 = 입력 마지막 프레임 (Δ readout 0 초기화)."""
+    model = build_model(in_frames=2, filters=2, h=16, w=16)
+    x = np.random.default_rng(0).random((2, 2, 16, 16, 1)).astype(np.float32)
+    pred = model.predict(x, verbose=0)
+    np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
+
   def test_model_is_compiled_with_shared_loss(self) -> None:
     """공통 compile_model 로 같은 손실이 걸린다."""
     import nc_pipeline

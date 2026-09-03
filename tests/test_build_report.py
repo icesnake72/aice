@@ -217,6 +217,29 @@ def test_render_shows_numbers_and_reference_line(tmp_path: Path) -> None:
   assert "METAL" in html_text
 
 
+def test_fourth_series_uses_own_color_not_fallback(tmp_path: Path) -> None:
+  """모델 4개를 그릴 때 네 번째 시리즈는 중립 fallback 이 아니라 slot 4 색을 쓴다.
+
+  SERIES_TOKENS 가 3개뿐이면 VideoTransformer 가 회색(--series-other)으로 떨어져
+  4모델 비교 페이지에서 한 모델만 다르게 보인다. dataviz 스킬 팔레트의 slot 4
+  (라이트 #eda100 / 다크 #c98500)를 쓰는지 토큰과 렌더 결과 양쪽에서 확인한다.
+  """
+  assert br._series_token(3) == "--series-4"
+  assert br._series_token(3) != br.SERIES_FALLBACK
+  assert len(br.SERIES_TOKENS) >= len(br.MODEL_ORDER)
+
+  all_figs = ("samples.png", "hourly_mean.png", "history.png", "full_frame_prediction.png")
+  for i, model in enumerate(br.MODEL_ORDER):
+    _write_fixture(tmp_path, model, 10000 + i, 0.004 + i * 0.0001, 0.98, all_figs)
+  html_text = br.render_html(br.load_results(tmp_path), "2026-09-04T12:00:00+09:00")
+
+  assert "var(--series-4)" in html_text
+  assert "var(--series-other)" not in html_text
+  # 라이트·다크 두 블록 모두에 토큰 값이 정의돼 있어야 테마 전환 시 색이 남는다
+  assert "--series-4: #eda100;" in html_text
+  assert "--series-4: #c98500;" in html_text
+
+
 def test_render_handles_no_results() -> None:
   """결과가 하나도 없어도 페이지는 만들어지고 모든 모델이 '결과 없음'."""
   html_text = br.render_html([], "2026-09-03T12:00:00+09:00")

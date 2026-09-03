@@ -46,8 +46,10 @@ CONDITION_DATA_KEYS: tuple[str, ...] = (
 NO_RESULT = "결과 없음"
 NO_FIGURE = "그림 없음"
 DASH = "—"
-# dataviz 스킬 카테고리 팔레트 slot 1~3 (검증 완료). 4번째부터는 중립색으로 접는다.
-SERIES_TOKENS: tuple[str, ...] = ("--series-1", "--series-2", "--series-3")
+# dataviz 스킬 카테고리 팔레트 slot 1~4 (blue/orange/aqua/yellow). 5번째부터는 중립색으로 접는다.
+# 막대·선 차트는 인접쌍(adjacent) 기준이라 slot 4 까지 validate_palette.js 의 6개 검사를
+# 라이트·다크 모두 통과한다 (최악 인접 CVD ΔE 9.1 light / 8.4 dark).
+SERIES_TOKENS: tuple[str, ...] = ("--series-1", "--series-2", "--series-3", "--series-4")
 SERIES_FALLBACK = "--series-other"
 MIME_BY_SUFFIX: dict[str, str] = {
   ".png": "image/png",
@@ -72,6 +74,7 @@ CSS = """
   --series-1: #2a78d6;
   --series-2: #eb6834;
   --series-3: #1baf7a;
+  --series-4: #eda100;
   --series-other: #898781;
   --ref: #52514e;
 }
@@ -89,6 +92,7 @@ CSS = """
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
+    --series-4: #c98500;
     --series-other: #898781;
     --ref: #c3c2b7;
   }

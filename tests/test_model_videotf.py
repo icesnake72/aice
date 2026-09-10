@@ -106,18 +106,20 @@ class VideoTransformerModelTest(unittest.TestCase):
     out = model.predict(x, verbose=0)
     np.testing.assert_allclose(out, x[:, -1], atol=1e-6)
 
-  def test_initial_output_is_near_persistence(self) -> None:
-    """초기 모델의 출력이 입력 마지막 프레임 "근처" 에서 출발한다.
+  def test_initial_output_is_persistence(self) -> None:
+    """가중치를 건드리지 않은 초기 모델의 출력 = 입력 마지막 프레임 (Δ readout 0 초기화).
 
-    다른 세 모델과 달리 Δ readout 커널을 작은 난수(DELTA_INIT_STD)로 시작하므로
-    출력이 Persistence 와 정확히 같지는 않다. bias 는 그대로 0 이라 편향은 없고,
-    Δ 가 작은 범위에 머물러야 학습이 Persistence 근처에서 출발한다는 계약이 유지된다.
+    hybrid conv head 로 바꾼 뒤 이 모델도 다른 세 모델과 같은 `init_std=0` 경로를 쓴다.
+    출발점이 정확히 Persistence 여야 네 모델의 비교 조건이 같다.
     """
     model = build_model(2, 2, 16, 16)
+    kernel, bias = model.get_layer(DELTA_LAYER_NAME).get_weights()
+    np.testing.assert_array_equal(kernel, np.zeros_like(kernel))   # zero-init 경로를 쓴다
+    np.testing.assert_array_equal(bias, np.zeros_like(bias))
+
     x = np.random.default_rng(1).random((2, 2, 16, 16, 1)).astype(np.float32)
-    delta = model.predict(x, verbose=0) - x[:, -1]
-    self.assertLess(float(np.abs(delta).mean()), 0.02)
-    self.assertLess(float(np.abs(delta).max()), 0.2)
+    pred = model.predict(x, verbose=0)
+    np.testing.assert_allclose(pred, x[:, -1], atol=1e-6)
 
   def test_mixed_precision_output_float32(self) -> None:
     """mixed_float16 정책에서도 Δ 와 최종 출력은 float32 로 유지된다.
@@ -133,7 +135,8 @@ class VideoTransformerModelTest(unittest.TestCase):
       model = build_model(2, 2, 16, 16)
 
       # 정책이 실제로 걸렸는지 먼저 본다. 은닉층이 float32 면 이 테스트는 공허해진다.
-      for name in ("patch_embed", "blk1_attn_s", "blk1_attn_t", "blk1_mlp1", "head_proj"):
+      for name in ("patch_embed", "blk1_attn_s", "blk1_attn_t", "blk1_mlp1",
+                   "head_proj", "skip_conv", "head_mix"):
         self.assertEqual(_dtype_name(model.get_layer(name).compute_dtype), "float16", name)
 
       # Δ(readout Conv2D) -> 잔차 합 -> 모델 출력은 전부 float32 여야 한다
@@ -272,10 +275,14 @@ class VideoTransformerModelTest(unittest.TestCase):
                                       err_msg=f"time fold b={bi} n={ni}")
 
   def test_pad_multiple_of_patch(self) -> None:
-    """PATCH 배수로 pad 한 뒤의 토큰 수: 96 -> 12x12=144, 250 -> 32x32=1024."""
-    self.assertEqual(PATCH, 8)
-    self.assertEqual(_token_count(build_model(4, 2, 96, 96)), (96 // PATCH) ** 2)
-    self.assertEqual(_token_count(build_model(4, 2, 250, 250)), (256 // PATCH) ** 2)
+    """PATCH 배수로 올림한 격자 크기가 그대로 토큰 수가 된다 (96 은 pad 없음, 250 은 pad).
+
+    PATCH 를 바꿔도 성립하도록 기대값을 계산으로 만든다 (PATCH=8 이면 144 / 1024).
+    """
+    for size in (96, 250):
+      padded = -(-size // PATCH) * PATCH          # PATCH 배수로 올림
+      self.assertEqual(_token_count(build_model(4, 2, size, size)), (padded // PATCH) ** 2,
+                       f"size={size} PATCH={PATCH}")
 
 
 if __name__ == "__main__":

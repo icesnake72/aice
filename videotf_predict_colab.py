@@ -14,10 +14,9 @@ arXiv:2410.04733, 공식 구현 github.com/yyyujintang/PredFormer — README 에
     96x96 으로 학습한 가중치를 250x250 모델로 그대로 옮길 수 있기 때문이다.
   - 다음 1 프레임만 예측하므로 디코더 없이 마지막 시점 토큰만 읽어 Δ 를 만든다.
     readout 은 픽셀당 READOUT_CH(8) 채널을 낸다 (1채널이면 Δ conv 가 스칼라 gain 하나가 된다).
-  - 네 모델 중 이 모델만 Δ readout 커널을 0 이 아니라 작은 난수(DELTA_INIT_STD=0.01)로 시작한다.
-    gain 이 0 이면 본체 gradient 도 0 인데, conv 모델과 달리 transformer 의 readout 특징은 초기에
-    입력 국소 구조와 정렬되지 않아 gain 이 스스로 자라지 못하기 때문이다. 다만 이 초기화만으로
-    실데이터 학습 정체가 풀리지는 않았다 (미해결, task-1-report.md "Fix round 5" 참고).
+  - readout 은 hybrid conv head 다: transformer 특징에 마지막 입력 프레임의 conv 특징을 붙여 섞는다.
+    8x8 패치 토큰의 선형 투영만으로는 픽셀 단위 국소 Δ 를 표현할 수 없어 Δ 가 입력 구조와
+    정렬되지 않고 학습이 Δ=0 에 머물렀기 때문이다 (2026-09-04 실측, 계획 0.2 절 5번).
   - dim 128 / depth 4 / head 4 로 작게 잡았다 (공식은 과제별로 훨씬 크다).
 
 Colab 사용법
@@ -65,12 +64,7 @@ DIM_PER_FILTER = 8   # DIM = DIM_PER_FILTER * filters (filters=16 -> DIM 128)
 # gradient 부호가 배치마다 뒤집히고 본체로 전달되지 않는다 (2026-09-04 실측: 4 epoch loss 평평).
 # ConvLSTM 16 · SimVP 16 · PredRNN-V2 4 채널과 같은 취지로 다채널을 준다.
 READOUT_CH = 8
-# Δ readout 커널 초기화 표준편차. 이 모델만 0 이 아니다 (nc_pipeline.delta_readout 참고).
-# gain 이 0 이면 본체 gradient 도 0 이라 readout 이 0 을 벗어나기 전까지 본체가 학습되지 않는데,
-# conv 모델과 달리 transformer 의 readout 특징은 초기에 입력 국소 구조와 정렬되지 않아
-# gain 이 스스로 자라지 못한다 (4 epoch 실측 1e-4). bias 는 그대로 0 이라 출발점은 Persistence 근처다.
-# 다만 이것만으로 실데이터 학습 정체는 풀리지 않았다 (task-1-report.md "Fix round 5").
-DELTA_INIT_STD = 0.01
+HEAD_CH = 16         # hybrid head 의 혼합 conv 폭 (transformer 특징 + 입력 conv 특징을 섞는다)
 
 DELTA_LAYER_NAME = "delta"    # 잔차 Δ 를 내는 readout Conv2D. 테스트가 이름으로 찾는다
 POS_LAYER_NAME = "posenc"     # 고정 위치 인코딩 레이어. 테스트가 파라미터 0 을 확인한다
@@ -299,7 +293,7 @@ def transformer_block(x, steps: int, tokens: int, dim: int, index: int):
 
 def build_model(in_frames: int, filters: int, h: int, w: int,
                 lr: float = 1e-3) -> keras.Model:
-  """패치 임베딩 -> 고정 위치 인코딩 -> factorized attention 블록 -> Δ readout 잔차 모델.
+  """패치 임베딩 -> 고정 위치 인코딩 -> factorized attention 블록 -> hybrid conv head -> 잔차 모델.
 
   가중치는 토큰 수와 무관하므로(위치 인코딩이 상수) 96x96 으로 학습한 뒤 250x250
   모델에 set_weights 하면 된다. h, w 가 PATCH 의 배수가 아니면 zero-pad 했다가 마지막에
@@ -323,19 +317,29 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   for i in range(1, DEPTH + 1):
     x = transformer_block(x, in_frames, tokens, dim, i)
 
-  # Readout: 마지막 시점 토큰만 읽어 패치를 픽셀로 되돌린다 (다음 1 프레임만 예측한다).
+  # Readout (hybrid conv head): transformer 경로와 픽셀 해상도 입력 경로를 합친다.
+  # transformer 경로 — 마지막 시점 토큰만 읽어 패치를 픽셀로 되돌린다 (다음 1 프레임만 예측한다).
   take_last_frame = make_take_last_frame_layer()
   y = take_last_frame(name="last_token")(x)
   y = layers.LayerNormalization(name="head_ln")(y)
   # 패치당 PATCH*PATCH 픽셀 × READOUT_CH 채널을 내고 depth_to_space 로 픽셀 격자를 편다
-  # (채널 수가 PATCH^2 의 배수여야 한다: 8*8*8 = 512).
+  # (depth_to_space 는 채널이 PATCH^2 의 배수여야 하므로 이 곱이 항상 조건을 만족한다).
   y = layers.Dense(PATCH * PATCH * READOUT_CH, name="head_proj")(y)
   y = layers.Reshape((grid_h, grid_w, PATCH * PATCH * READOUT_CH), name="head_grid")(y)
   y = DepthToSpace(PATCH, name="from_patch")(y)
-  y = layers.Cropping2D(((0, pad_h), (0, pad_w)), name="head_crop")(y)
+  feat_tf = layers.Cropping2D(((0, pad_h), (0, pad_w)), name="head_crop")(y)
+
+  # 입력 skip 경로 — 한 패치의 픽셀은 모두 같은 토큰의 선형 투영이라 픽셀 단위 국소 Δ 를
+  # 표현하지 못한다. 마지막 입력 프레임에서 직접 뽑은 conv 특징을 붙여 Δ 가 입력의 국소
+  # 구조와 정렬되게 한다 (다른 세 모델의 readout 입력이 conv 특징인 것과 같은 성질).
+  feat_in = layers.Conv2D(READOUT_CH, 3, padding="same", activation="gelu",
+                          name="skip_conv")(take_last_frame(name="last_frame")(inp))
+
+  head = layers.Concatenate(name="head_concat")([feat_tf, feat_in])
+  head = layers.Conv2D(HEAD_CH, 3, padding="same", activation="gelu", name="head_mix")(head)
 
   # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
-  delta = delta_readout(y, kernel_size=1, name=DELTA_LAYER_NAME, init_std=DELTA_INIT_STD)
+  delta = delta_readout(head, kernel_size=1, name=DELTA_LAYER_NAME)
   return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
 
 

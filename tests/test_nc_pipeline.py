@@ -296,9 +296,10 @@ class ModelTest(unittest.TestCase):
   def test_delta_readout_init_std(self) -> None:
     """`init_std` 가 0 이면 zeros, 양수면 그 표준편차의 난수 커널이다.
 
-    기본값 0 은 세 모델(ConvLSTM·SimVP·PredRNN-V2)의 "출발점 = Persistence" 계약이고,
-    양수는 VideoTransformer 전용 예외다 (gain 이 0 이면 본체 gradient 가 Adam epsilon
-    아래로 내려가 학습이 시작되지 않는다). bias 는 어느 쪽이든 0 이어야 한다.
+    기본값 0 은 네 모델 공통의 "출발점 = Persistence" 계약이다. 양수 경로는 실험용이고
+    현재 어떤 모델도 쓰지 않는다 — VideoTransformer 의 학습 정체를 풀려고 넣었지만
+    효과가 없었고, 실측상 원인은 readout 구조였다(hybrid conv head 로 해결).
+    bias 는 어느 쪽이든 0 이어야 한다.
     """
     from tensorflow import keras
 

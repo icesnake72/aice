@@ -1,5 +1,13 @@
 # Coding History
 
+## 2026-09-11 Windows(WSL2+RTX 3070) 실행 준비
+- `requirements.txt`(macOS/Linux 공용, TF 2.16~2.20), `requirements-wsl-cuda.txt`(WSL2+NVIDIA, `tensorflow[and-cuda]==2.20.*`) 추가. Mac 은 기존 TF 2.15+tensorflow-metal 유지
+- `tools/env_check.py` 추가: Python/TF/Keras 버전, GPU(device_name·compute capability), mixed_float16, fp16 행렬곱 벤치, xarray/netCDF4, `.nc` 개수·캐시, 한글 폰트, 디스크를 표 또는 `--json` 으로 점검. `tests/test_env_check.py` 9건
+- `.gitattributes` 추가(LF 고정, 바이너리 지정). 기존 추적 파일은 전부 LF 라 renormalize 불필요
+- `doc/setup_windows.md` 추가: WSL2 권장 근거(네이티브 TF 는 2.10 까지 GPU 지원, GroupNormalization 은 2.11+), 설치·검증·데이터 이동·실행·결과 반영·문제 해결
+- README 를 4 모델 기준으로 갱신, `site/index.html` 을 4 모델 리포트로 재생성(VideoTransformer 는 Windows 실행 후 반영)
+- 실패했던 로컬 VideoTransformer 결과(2026-09-04, 학습 정체)는 커밋하지 않고 scratch 로 이동
+
 ## 2026-09-11 VideoTransformer 모델 추가
 - 4번째 모델 `videotf_predict_colab.py` 추가: factorized space-time attention (PredFormer 계열, arXiv:2410.04733), `DIM=128` / `DEPTH=4` / `HEADS=4`, 1,135,345 params
 - 학습 정체 진단: 토큰 → 픽셀 선형 readout 은 8×8 패치 안의 국소 Δ 를 표현하지 못해 loss 가 0.0318 에서 평평 (1채널·8채널·Δ 난수 초기화 모두 실패)

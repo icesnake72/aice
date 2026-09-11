@@ -367,19 +367,20 @@ infer_model.set_weights(model.get_weights())
 그래서 같은 파이프라인을 Colab 용으로 옮긴 **스크립트를 원본**으로 두고, Colab 에 올릴 노트북은 그 스크립트에서 자동 생성한다.
 
 데이터·학습·평가는 공통 모듈 `nc_pipeline.py` 에 있고, 모델 파일은 `build_model()` 과 `MODEL_NAME` 만 정의한다.
-세 모델(ConvLSTM · SimVP · PredRNN-V2)의 구조 비교와 배포 절차는 [model_comparison.md](model_comparison.md) 에 있다.
+네 모델(ConvLSTM · SimVP · PredRNN-V2 · VideoTransformer)의 구조 비교와 배포 절차는 [model_comparison.md](model_comparison.md) 에 있다.
 
 | 파일 | 역할 | 비고 |
 | --- | --- | --- |
-| `nc_pipeline.py` | 공통 파이프라인 (적재·세그먼트·정규화·데이터셋·손실·학습·평가·`metrics.json`) | 모델 3개가 그대로 공유한다 |
+| `nc_pipeline.py` | 공통 파이프라인 (적재·세그먼트·정규화·데이터셋·손실·학습·평가·`metrics.json`) | 모델 4개가 그대로 공유한다 |
 | `nc_predict_colab.py` | ConvLSTM 엔트리 (`MODEL_NAME` + `build_model`) | 로컬 Keras 2 에서도 그대로 동작 |
 | `simvp_predict_colab.py` | SimVP 엔트리 | 574,257 params (`filters=16`) |
 | `predrnn_v2_predict_colab.py` | PredRNN-V2 엔트리 | 63,494 params (`filters=16`) |
+| `videotf_predict_colab.py` | VideoTransformer 엔트리 | 1,135,345 params (`filters=16`) |
 | `tools/build_colab_notebook.py` | `.py` 를 섹션 단위 셀로 잘라 `.ipynb` 생성 | `--model`, `--profile`, `--all`, `--root` |
-| `ConvLSTM_prediction_colab.ipynb`, `SimVP_prediction[_colab].ipynb`, `PredRNN_V2_prediction[_colab].ipynb` | 생성 노트북 5개 | 직접 수정하지 않는다. `ConvLSTM_prediction.ipynb` 만 수작업 |
+| `ConvLSTM_prediction_colab.ipynb`, `SimVP_prediction[_colab].ipynb`, `PredRNN_V2_prediction[_colab].ipynb`, `VideoTransformer_prediction[_colab].ipynb` | 생성 노트북 7개 | 직접 수정하지 않는다. `ConvLSTM_prediction.ipynb` 만 수작업 |
 | `tools/build_report.py` | `results/*/metrics.json` + png → `site/index.html` | 외부 리소스 없는 단일 파일 |
 | `netlify.toml` | `publish = "site"`, build command 없음 | repo 를 Netlify 에 연결하면 그대로 배포된다 |
-| `tests/` | 파이프라인·모델 3종·생성기·리포트 테스트 77건 | 데이터 없이 실행 가능 |
+| `tests/` | 파이프라인·모델 4종·생성기·리포트 테스트 103건 | 데이터 없이 실행 가능 |
 
 Google Drive 경로는 다음과 같다. 스크립트 상수 `COLAB_DATA_DIR`, `COLAB_OUT_DIR` 또는 노트북 마지막 셀의 `Config(...)` 에서 바꾼다.
 로컬 실행의 기본 출력은 `results/` (`LOCAL_OUT_DIR`) 이고 구조는 Drive 쪽과 같다.
@@ -399,7 +400,7 @@ Google Drive 경로는 다음과 같다. 스크립트 상수 `COLAB_DATA_DIR`, `
 4. 끝나면 `MyDrive/nc_predict_output/<Model>/` 을 repo 의 `results/<Model>/` 로 복사하고 `python3 tools/build_report.py` 로 리포트를 갱신한다.
 
 ```bash
-# .py 를 고친 뒤 노트북 재생성 (생성 대상 5개 전부)
+# .py 를 고친 뒤 노트북 재생성 (생성 대상 7개 전부)
 python3 tools/build_colab_notebook.py --all
 
 # 하나만

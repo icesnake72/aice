@@ -1,5 +1,15 @@
 # Coding History
 
+## 2026-09-11 VideoTransformer 모델 추가
+- 4번째 모델 `videotf_predict_colab.py` 추가: factorized space-time attention (PredFormer 계열, arXiv:2410.04733), `DIM=128` / `DEPTH=4` / `HEADS=4`, 1,135,345 params
+- 학습 정체 진단: 토큰 → 픽셀 선형 readout 은 8×8 패치 안의 국소 Δ 를 표현하지 못해 loss 가 0.0318 에서 평평 (1채널·8채널·Δ 난수 초기화 모두 실패)
+- 해결: hybrid conv head — transformer 특징에 마지막 입력 프레임의 conv 특징(`skip_conv`)을 붙여 `head_mix` 로 섞고 zero-init Δ readout 유지 → loss 0.03152 → 0.02573 → 0.02242
+- `PATCH = 8` 확정 (vs 4): val MAE 0.00772 / SSIM 0.9784 vs 0.00922 / 0.9770, 250×250 추론 0.40 s vs 12.9 s per frame
+- 리포트에 4번째 categorical 색 추가, 제목·각주를 `MODEL_ORDER` 에서 생성 (하드코딩 제거), 노트북 2개 생성
+- 테스트 103건이 Keras 2(TF 2.15)·Keras 3 양쪽에서 통과
+- 문서 갱신: `doc/model_comparison.md` (1·3.4·4·5·7.2·8절), `doc/nc_predict_pipeline.md` 7.5
+- 본 학습은 Windows (WSL2, RTX 3070) 에서 실행 예정 — `results/VideoTransformer/` 는 아직 비어 있다
+
 ## 2026-09-03 최종 리뷰 수정 웨이브
 - `predrnn_v2_predict_colab.py` docstring 정정: 라이선스를 "LICENSE 파일 없음(2026-09-03 확인)", LayerNorm 미사용 사유를 "비교 조건 단순화" 로 (`doc/model_comparison.md` 와 일치)
 - `tools/build_report.py`: 모델 간 실행 조건 검사 `find_condition_mismatches` 추가 — 어긋나면 경고 로그 + 헤더 아래 배너 + 7절 각주 조건부 문장, 출력 쓰기 `OSError` 를 잡아 종료 코드 1

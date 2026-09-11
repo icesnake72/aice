@@ -1,5 +1,13 @@
 # Coding History
 
+## 2026-09-11 리포트 모바일 대응
+- `@media (max-width: 640px)` 한 겹 추가: 비교표를 모델 카드로 접고(`td[data-label]` + `td::before`), 본문 16px·좌우 여백 16px, 카드 1열(>=900px 2열)
+- 차트를 넓은 화면용(`.chart-wide`)·좁은 화면용(`.chart-narrow`) 두 벌로 생성: 좁은 판은 viewBox 340, 글자 12px, 범례를 그래프 아래로. 색 토큰은 두 판이 동일
+- 섹션 앵커 7개(`#summary`~`#method`)와 sticky 칩 네비(탭 영역 44px) 추가, 4분할 예측 그림은 좁은 화면에서 좌우 패닝(720px)
+- 가로 스크롤 원인 제거: `minmax(320px, 1fr)` 그리드, 카드 `min-width:auto`, 줄바꿈 안 되던 긴 경로 문구. 320/375/430/768/1000px 에서 overflow 0
+- 넓은 판 막대 차트의 모델 이름 여백을 110 → 132 로 (`VideoTransformer` 가 잘려 있었다)
+- 테스트 57건 통과 (모바일 11건 추가)
+
 ## 2026-09-11 Windows(WSL2+RTX 3070) 실행 준비
 - `requirements.txt`(macOS/Linux 공용, TF 2.16~2.20), `requirements-wsl-cuda.txt`(WSL2+NVIDIA, `tensorflow[and-cuda]==2.20.*`) 추가. Mac 은 기존 TF 2.15+tensorflow-metal 유지
 - `tools/env_check.py` 추가: Python/TF/Keras 버전, GPU(device_name·compute capability), mixed_float16, fp16 행렬곱 벤치, xarray/netCDF4, `.nc` 개수·캐시, 한글 폰트, 디스크를 표 또는 `--json` 으로 점검. `tests/test_env_check.py` 9건

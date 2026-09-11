@@ -398,3 +398,184 @@ def test_cli_returns_1_when_output_is_unwritable(tmp_path: Path) -> None:
   out = blocker / "site" / "index.html"
   assert br.main(["--results-dir", str(make_results(tmp_path / "results")), "--out", str(out)]) == 1
   assert blocker.read_text(encoding="utf-8") == "not a directory"
+
+
+# ---------------------------------------------------------------------------
+# 모바일 대응 (좁은 화면 레이아웃·차트·네비)
+# ---------------------------------------------------------------------------
+
+class CompareTableParser(HTMLParser):
+  """비교표의 열 제목과 행별 <td> data-label 을 모은다."""
+
+  def __init__(self) -> None:
+    """상태를 초기화한다."""
+    super().__init__(convert_charrefs=True)
+    self.in_table = False
+    self.headers: list[str] = []
+    self.rows: list[list[tuple[str | None, bool]]] = []
+    self._reading_header = False
+
+  def handle_starttag(self, tag: str, attrs: list[Any]) -> None:
+    """표 안의 열 제목과 데이터 셀을 기록한다."""
+    attr = dict(attrs)
+    if tag == "table" and "stack-table" in (attr.get("class") or ""):
+      self.in_table = True
+      return
+    if not self.in_table:
+      return
+    if tag == "th" and attr.get("scope") == "col":
+      self._reading_header = True
+      self.headers.append("")
+    elif tag == "tr":
+      self.rows.append([])
+    elif tag == "td":
+      self.rows[-1].append((attr.get("data-label"), "colspan" in attr))
+
+  def handle_data(self, data: str) -> None:
+    """열 제목 텍스트를 모은다."""
+    if self._reading_header:
+      self.headers[-1] += data
+
+  def handle_endtag(self, tag: str) -> None:
+    """열 제목·표의 끝을 표시한다."""
+    if tag == "th":
+      self._reading_header = False
+    elif tag == "table":
+      self.in_table = False
+
+
+def _full_results(root: Path) -> Path:
+  """MODEL_ORDER 네 모델 모두 결과가 있는 fixture 를 만든다."""
+  all_figs = ("samples.png", "hourly_mean.png", "history.png", "full_frame_prediction.png")
+  for i, model in enumerate(br.MODEL_ORDER):
+    _write_fixture(root, model, 10000 + i, 0.004 + i * 0.0003, 0.98 - i * 0.002, all_figs)
+  return root
+
+
+def test_viewport_meta_is_present(tmp_path: Path) -> None:
+  """휴대폰에서 축소되지 않도록 viewport meta 가 있어야 한다."""
+  html_text = br.render_html(br.load_results(make_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html_text
+
+
+def test_comparison_table_cells_carry_matching_data_label(tmp_path: Path) -> None:
+  """비교표의 모든 <td> 가 자기 열 제목을 data-label 로 들고 있다.
+
+  좁은 화면에서 표를 카드로 접을 때 CSS 가 이 값을 라벨로 되살리므로, 열 제목과
+  어긋나면 값이 엉뚱한 이름표를 달게 된다.
+  """
+  html_text = br.render_html(br.load_results(_full_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  parser = CompareTableParser()
+  parser.feed(html_text)
+  parser.close()
+
+  assert parser.headers == list(br.COMPARE_HEADERS)
+  data_rows = [r for r in parser.rows if r]
+  assert len(data_rows) == len(br.MODEL_ORDER)
+  for row in data_rows:
+    assert all(label for label, _ in row), row
+    assert [label for label, _ in row] == list(br.COMPARE_HEADERS[1:]), row
+
+
+def test_missing_model_row_cell_also_has_data_label(tmp_path: Path) -> None:
+  """'결과 없음' colspan 셀도 data-label 을 들고 있다 (CSS 가 감춘다)."""
+  html_text = br.render_html(br.load_results(make_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  parser = CompareTableParser()
+  parser.feed(html_text)
+  parser.close()
+  spanned = [cell for row in parser.rows for cell in row if cell[1]]
+  assert spanned, "결과 없음 행이 없다"
+  assert all(label for label, _ in spanned)
+
+
+def test_both_chart_variants_are_emitted(tmp_path: Path) -> None:
+  """막대 차트 2개와 꺾은선 차트 1개가 넓은 화면용·좁은 화면용 두 벌로 나온다."""
+  html_text = br.render_html(br.load_results(_full_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  assert html_text.count('class="chart-scroll chart-wide"') == 3
+  assert html_text.count('class="chart-narrow"') == 3
+  # 같은 제목이 두 벌 모두에 있어야 같은 차트의 두 판이다
+  for title in ("모델별 검증 MAE", "모델별 검증 SSIM", "모델별 epoch 손실 곡선"):
+    assert html_text.count(f"<title>{title}</title>") == 2, title
+
+
+def test_narrow_bar_chart_has_one_rect_per_model_and_reference_line() -> None:
+  """좁은 화면 막대 차트는 모델당 <rect> 하나와 Persistence 점선 하나를 그린다."""
+  labels = [br._label(m) for m in br.MODEL_ORDER]
+  values = [0.0040, 0.0044, 0.0052, 0.0048]
+  svg = br.svg_bar_chart_narrow(labels, values, list(range(4)), 0.00623,
+                                "Persistence 기준선", 5, "검증 MAE", "모델별 검증 MAE")
+  assert svg.count("<rect") == len(br.MODEL_ORDER)
+  assert svg.count('stroke="var(--ref)" stroke-width="2" stroke-dasharray="5 4"') == 2  # 기준선 + 범례
+  assert 'viewBox="0 0 340' in svg
+  assert "font-size=\"11\"" not in svg and "font-size=\"10\"" not in svg  # 12px 미만 글자 금지
+
+
+def test_narrow_bar_chart_skips_bar_for_missing_value() -> None:
+  """값이 없는 모델은 막대 없이 '결과 없음' 으로 남는다."""
+  svg = br.svg_bar_chart_narrow(["A", "B"], [0.004, None], [0, 1], None,
+                                "Persistence 기준선", 5, "검증 MAE", "t")
+  assert svg.count("<rect") == 1
+  assert br.NO_RESULT in svg
+
+
+def test_chart_variants_share_the_same_series_tokens() -> None:
+  """두 판이 같은 카테고리 색 토큰을 쓴다 (좁은 화면에서만 색이 달라지면 안 된다)."""
+  labels = [br._label(m) for m in br.MODEL_ORDER]
+  values = [0.004, 0.0044, 0.0052, 0.0048]
+  wide = br.svg_bar_chart(labels, values, list(range(4)), 0.006, "ref", 5, "x", "t")
+  narrow = br.svg_bar_chart_narrow(labels, values, list(range(4)), 0.006, "ref", 5, "x", "t")
+  for token in br.SERIES_TOKENS:
+    assert f"var({token})" in wide, token
+    assert f"var({token})" in narrow, token
+  assert "var(--series-other)" not in narrow
+
+
+def test_narrow_line_chart_is_narrow_and_legible() -> None:
+  """좁은 화면 꺾은선은 viewBox 가 좁고 글자가 12px 이상이며 범례가 아래에 있다."""
+  series = [{"name": "ConvLSTM", "slot": 0, "loss": [0.02, 0.011], "val_loss": [0.010, 0.009]},
+            {"name": "SimVP", "slot": 1, "loss": [0.03, 0.021], "val_loss": [0.020, 0.019]}]
+  svg = br.svg_line_chart_narrow(series, "epoch", "손실", "모델별 epoch 손실 곡선")
+  assert 'viewBox="0 0 340' in svg
+  assert "font-size=\"11\"" not in svg
+  assert "rotate(-90" not in svg  # 세로 회전 축 제목을 쓰지 않는다
+  assert "ConvLSTM" in svg and "SimVP" in svg
+  assert br.svg_line_chart_narrow([], "epoch", "손실", "t").count(br.NO_RESULT) == 1
+
+
+def test_section_nav_links_every_section(tmp_path: Path) -> None:
+  """네비가 페이지에 있는 모든 섹션 id 를 하나씩 가리킨다."""
+  import re
+  html_text = br.render_html(br.load_results(make_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  ids = re.findall(r'<section id="([^"]+)"', html_text)
+  nav = re.search(r'<nav class="section-nav".*?</nav>', html_text, re.S)
+  assert nav is not None
+  hrefs = re.findall(r'href="#([^"]+)"', nav.group(0))
+  assert ids == list(br.SECTION_IDS)
+  assert hrefs == ids
+  assert 'aria-label="섹션 바로가기"' in nav.group(0)
+
+
+def test_mobile_css_rules_exist(tmp_path: Path) -> None:
+  """좁은 화면 규칙(640px 분기, data-label 라벨, 그림 패닝)이 CSS 에 있다."""
+  html_text = br.render_html(br.load_results(make_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  assert "@media (max-width: 640px)" in html_text
+  assert "content: attr(data-label)" in html_text
+  assert ".figure-pan img { min-width: 720px; }" in html_text
+  assert br.PAN_HINT in html_text
+  assert "position: sticky" in html_text
+  assert "min-height: 44px" in html_text  # 탭 영역
+  # 새 색은 라이트·다크 양쪽에 정의돼야 한다
+  for token in ("--nav-bg", "--chip-bg"):
+    assert html_text.count(f"{token}:") == 2, token
+
+
+def test_page_stays_self_contained_after_mobile_changes(tmp_path: Path) -> None:
+  """모바일 대응 뒤에도 스크립트·외부 리소스가 없다."""
+  html_text = br.render_html(br.load_results(_full_results(tmp_path)), "2026-09-11T12:00:00+09:00")
+  assert "<script" not in html_text
+  assert "http://" not in html_text
+  assert "https://" not in html_text
+  parser = TagBalance()
+  parser.feed(html_text)
+  parser.close()
+  assert parser.errors == [] and parser.stack == []

@@ -3,6 +3,12 @@
 # Netlify 에서 "Add new site > Import an existing project" 로 이 repo 를 고르면
 # 빌드 없이 site/ 디렉터리를 그대로 서빙한다. site/index.html 은 외부 리소스가 없는
 # 단일 파일이며 `python3 tools/build_report.py` 로 만들어 커밋한다.
+#
+# base 를 site/ 로 두는 이유: Netlify 는 base directory 에서 의존성 파일(requirements.txt,
+# package.json 등)을 찾아 자동 설치한다. 저장소 루트의 requirements.txt(TensorFlow)를 보면
+# 빌드 이미지의 Python 3.14 에 TensorFlow 휠이 없어 배포가 실패한다(2026-09-11 실패 로그).
+# site/ 에는 의존성 파일이 없으므로 설치 단계가 건너뛰어진다. publish 는 base 기준 상대경로다.
 
 [build]
-  publish = "site"
+  base = "site"
+  publish = "."

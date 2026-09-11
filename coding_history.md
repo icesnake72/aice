@@ -7,6 +7,7 @@
 - `doc/setup_windows.md` 추가: WSL2 권장 근거(네이티브 TF 는 2.10 까지 GPU 지원, GroupNormalization 은 2.11+), 설치·검증·데이터 이동·실행·결과 반영·문제 해결
 - README 를 4 모델 기준으로 갱신, `site/index.html` 을 4 모델 리포트로 재생성(VideoTransformer 는 Windows 실행 후 반영)
 - 실패했던 로컬 VideoTransformer 결과(2026-09-04, 학습 정체)는 커밋하지 않고 scratch 로 이동
+- Netlify 배포 실패 수정: 루트 `requirements.txt` 자동 pip 설치(Python 3.14, TensorFlow 휠 없음)를 피하려고 `netlify.toml` 에 `base = "site"`, `publish = "."` 설정
 
 ## 2026-09-11 VideoTransformer 모델 추가
 - 4번째 모델 `videotf_predict_colab.py` 추가: factorized space-time attention (PredFormer 계열, arXiv:2410.04733), `DIM=128` / `DEPTH=4` / `HEADS=4`, 1,135,345 params

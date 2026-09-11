@@ -27,6 +27,7 @@ python3 tools/build_report.py
 ```
 
 빠른 확인은 `--hours 23 --epochs 1` 을 붙이고, `--out-dir` 을 임시 디렉터리로 주면 `results/` 를 건드리지 않는다.
+새 환경(특히 Windows/WSL2)에서는 먼저 `python tools/env_check.py` 로 TensorFlow·GPU·데이터·한글 폰트를 점검한다.
 
 ---
 
@@ -66,3 +67,4 @@ Colab 결과는 그 폴더를 `results/<Model>/` 로 복사한 뒤 `python3 tool
 | 데이터 전처리·분할·평가가 왜 그렇게 되어 있는지 | [doc/nc_predict_pipeline.md](doc/nc_predict_pipeline.md) |
 | ConvLSTM 자체의 원리 | [doc/convlstm_principles.md](doc/convlstm_principles.md) |
 | SSIM 지표의 의미 | [doc/ssim_explained.md](doc/ssim_explained.md) |
+| Windows(WSL2 + NVIDIA GPU)에서 실행하는 방법 | [doc/setup_windows.md](doc/setup_windows.md) |

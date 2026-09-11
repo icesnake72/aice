@@ -1,0 +1,22 @@
+# GK2A 위성영상 예측 파이프라인 — macOS/Linux CPU 또는 "TensorFlow 가 이미 설치된" 환경용.
+#
+# 주의(맥북): 이 파일로 macOS 에 새로 설치하지 않는다. Mac 은 /usr/local/bin/python3 (3.11)
+# 에 TF 2.15.0 + tensorflow-metal 이 이미 있고, 이 조합이 Apple GPU 가속(Metal)의 유일한 경로다.
+# pip install -r requirements.txt 를 macOS 에서 그대로 돌리면 tensorflow-metal 없는 순정
+# tensorflow 로 덮어써 GPU 가속을 잃을 수 있으니, Mac 에서는 기존 인터프리터를 그대로 쓴다.
+#
+# 이 파일이 맞는 경우: Linux/CI 의 CPU 전용 실행, 또는 tensorflow 를 별도 경로(Metal, WSL2 등)로
+# 이미 갖춘 환경에서 나머지 라이브러리만 맞추고 싶을 때.
+# GPU 가속이 필요한 WSL2 + NVIDIA 조합은 requirements-wsl-cuda.txt 를 쓴다 (doc/setup_windows.md).
+#
+# tensorflow>=2.16 인 이유: nc_pipeline.py 가 Keras 2/3 양쪽을 지원하지만
+# simvp_predict_colab.py 의 layers.GroupNormalization 은 TF>=2.11 이 필요하고,
+# 로컬 실측(ConvLSTM)은 TF 2.15, Colab 실측(SimVP/PredRNN-V2)은 TF 2.20 이었다.
+# <2.21 인 이유: 2.21 부터 Python 3.9 지원이 끊긴다 (tensorflow.org/install/pip 경고문) —
+# 이 저장소가 검증한 것은 2.15 와 2.20/2.21 대이므로 그 범위를 넘기지 않는다.
+tensorflow>=2.16,<2.21
+numpy
+xarray
+netCDF4
+matplotlib
+pytest

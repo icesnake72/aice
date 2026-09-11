@@ -1,0 +1,22 @@
+# GK2A 위성영상 예측 파이프라인 — WSL2(Ubuntu 22.04) + NVIDIA GPU 용.
+#
+# 대상: Windows 11 + RTX 30xx 이상을 WSL2 로 쓰는 경우. 네이티브 Windows 는 TF 2.10 에서
+# GPU 지원이 끝났고(simvp_predict_colab.py 의 layers.GroupNormalization 은 TF>=2.11 필요라
+# 네이티브로는 애초에 돌지 않는다), DirectML 플러그인도 공식 GPU 경로가 아니라서 제외한다.
+# 자세한 근거는 doc/setup_windows.md 1절을 본다.
+#
+# Python: 3.10-3.12 권장. tensorflow 2.20.0 의 PyPI classifier 는 3.9-3.13 을 나열하지만
+# tensorflow.org/install/pip 가 "2.21 부터 Python 3.9 지원 종료, 3.10-3.13 사용" 이라고
+# 명시하므로 3.9 는 피한다. WSL2 Ubuntu 22.04 기본 python3 가 3.10 이라 별도 설치 없이 맞는다.
+#
+# [and-cuda] 익스트라: PyPI 의 tensorflow 2.20.0 requires_dist 에 nvidia-cublas-cu12,
+# nvidia-cudnn-cu12, nvidia-cuda-runtime-cu12 등이 extra == "and-cuda" 조건으로 선언돼 있어
+# CUDA/cuDNN 라이브러리가 pip wheel 로 함께 설치된다. 그래서 Windows 쪽 NVIDIA GPU 드라이버만
+# 있으면 되고, WSL2 안에 CUDA Toolkit 을 따로 설치할 필요가 없다
+# (tensorflow.org/install/pip: "NVIDIA GPU drivers >= 528.33 for WSL on Windows").
+tensorflow[and-cuda]==2.20.*
+numpy
+xarray
+netCDF4
+matplotlib
+pytest

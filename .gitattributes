@@ -1,0 +1,20 @@
+# 줄바꿈 정책: 텍스트 파일은 항상 LF 로 저장한다.
+# Windows(WSL2 밖의 순정 git, PowerShell 등)에서 이 저장소를 다룰 때
+# core.autocrlf 설정과 무관하게 커밋되는 내용이 LF 로 고정되도록 명시한다.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.csv text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+*.ipynb text eol=lf
+
+# 바이너리: diff/merge 시도와 줄바꿈 변환 모두 하지 않는다.
+*.png binary
+*.nc binary
+*.npz binary
+*.npy binary
+*.h5 binary
+*.pdf binary

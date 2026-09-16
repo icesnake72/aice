@@ -113,36 +113,43 @@ def ensure_session1_data(data_dir: str = DATA_DIR) -> None:
   n = 300
   regions = ["서울", "경기", "부산", "대구", "기타"]
   plans = ["5G", "LTE", "3G"]
+
+  # 데이터 사용량: 일반 사용자(90%)는 평균 12GB·표준편차 4GB 의 종 모양(정규분포)으로,
+  #               헤비 유저(10%)는 30~70GB 사이에서 고르게(균등분포) 만든다.
+  #               -> 대부분은 10GB 안팎이고 소수만 큰 값을 가지는, 오른쪽 꼬리가 긴 분포가 된다.
+  is_heavy = rng.random(n) < 0.10                                    # 행마다 10% 확률로 헤비 유저
+  usage = np.where(is_heavy, rng.uniform(30, 70, size=n), rng.normal(12, 4, size=n))
+  usage = np.clip(usage, 0.5, None)                                  # 음수 방지: 최소 0.5GB
   customers = pd.DataFrame({
-    "customer_id": [f"C{i:04d}" for i in range(1, n + 1)],
-    "gender": rng.choice(["M", "F"], size=n),
-    "age": rng.integers(19, 70, size=n).astype(float),
-    "region": rng.choice(regions, size=n, p=[0.35, 0.3, 0.15, 0.1, 0.1]),
-    "postal_code": [f"{z:05d}" for z in rng.integers(1000, 63999, size=n)],
-    "plan": rng.choice(plans, size=n, p=[0.5, 0.4, 0.1]),
-    "monthly_fee": rng.choice([29000, 35000, 45000, 55000, 65000, 79000, 89000], size=n).astype(float),
-    "data_usage_gb": np.round(rng.gamma(2.0, 8.0, size=n), 1),
-    "join_date": pd.to_datetime("2019-01-01") + pd.to_timedelta(rng.integers(0, 2000, size=n), unit="D"),
+    "고객ID": [f"C{i:04d}" for i in range(1, n + 1)],
+    "성별": rng.choice(["M", "F"], size=n),
+    "나이": rng.integers(19, 70, size=n).astype(float),
+    "지역": rng.choice(regions, size=n, p=[0.35, 0.3, 0.15, 0.1, 0.1]),
+    "우편번호": [f"{z:05d}" for z in rng.integers(1000, 63999, size=n)],
+    "요금제": rng.choice(plans, size=n, p=[0.5, 0.4, 0.1]),
+    "월요금": rng.choice([29000, 35000, 45000, 55000, 65000, 79000, 89000], size=n).astype(float),
+    "데이터사용량": np.round(usage, 1),
+    "가입일": pd.to_datetime("2019-01-01") + pd.to_timedelta(rng.integers(0, 2000, size=n), unit="D"),
   })
-  customers["tenure_months"] = ((pd.to_datetime("2024-12-31") - customers["join_date"]).dt.days // 30)
-  churn_prob = 0.15 + 0.25 * (customers["tenure_months"] < 12) + 0.1 * (customers["plan"] == "3G")
-  customers["churn"] = np.where(rng.random(n) < churn_prob, "Yes", "No")
-  customers.loc[rng.choice(n, 12, replace=False), "age"] = np.nan
-  customers.loc[rng.choice(n, 8, replace=False), "data_usage_gb"] = np.nan
+  customers["가입개월수"] = ((pd.to_datetime("2024-12-31") - customers["가입일"]).dt.days // 30)
+  churn_prob = 0.15 + 0.25 * (customers["가입개월수"] < 12) + 0.1 * (customers["요금제"] == "3G")
+  customers["이탈여부"] = np.where(rng.random(n) < churn_prob, "Yes", "No")
+  customers.loc[rng.choice(n, 12, replace=False), "나이"] = np.nan
+  customers.loc[rng.choice(n, 8, replace=False), "데이터사용량"] = np.nan
   customers.to_csv(f"{data_dir}/customers.csv", index=False)
 
-  plan_info = pd.DataFrame({"plan": plans, "speed_mbps": [1000, 150, 10], "launch_year": [2019, 2011, 2006]})
+  plan_info = pd.DataFrame({"요금제": plans, "속도Mbps": [1000, 150, 10], "출시연도": [2019, 2011, 2006]})
   with pd.ExcelWriter(f"{data_dir}/customers.xlsx") as writer:
     customers.to_excel(writer, sheet_name="customers", index=False)
     plan_info.to_excel(writer, sheet_name="plans", index=False)
 
   dates = pd.date_range("2024-01-01", "2024-12-31", freq="D")
   sales = pd.DataFrame({
-    "date": np.repeat(dates, 3),
-    "store": np.tile(["강남점", "홍대점", "부산점"], len(dates)),
-    "qty": rng.poisson(20, size=len(dates) * 3),
+    "날짜": np.repeat(dates, 3),
+    "매장": np.tile(["강남점", "홍대점", "부산점"], len(dates)),
+    "판매량": rng.poisson(20, size=len(dates) * 3),
   })
-  sales["amount"] = sales["qty"] * rng.choice([12000, 15000, 18000], size=len(sales))
+  sales["매출액"] = sales["판매량"] * rng.choice([12000, 15000, 18000], size=len(sales))
   sales.to_csv(f"{data_dir}/sales_2024.csv", index=False)
   print("1회차 데이터를 재생성했습니다:", required)
 
@@ -153,10 +160,10 @@ code(r"""
 # 1회차에서 배운 옵션을 그대로 사용해 읽는다.
 df = pd.read_csv(
   f"{DATA_DIR}/customers.csv",
-  dtype={"postal_code": str},
-  parse_dates=["join_date"],
+  dtype={"우편번호": str},
+  parse_dates=["가입일"],
 )
-sales = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["date"])
+sales = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["날짜"])
 plans = pd.read_excel(f"{DATA_DIR}/customers.xlsx", sheet_name="plans")
 
 print("customers:", df.shape, "| sales:", sales.shape, "| plans:", plans.shape)
@@ -212,8 +219,8 @@ md(r"""
 ```
 RangeIndex: 300 entries, 0 to 299      ← 전체 행 수 = 300
  #   Column         Non-Null Count  Dtype
- 2   age            288 non-null    float64   ← 300 - 288 = 12개 결측!
- 8   join_date      300 non-null    datetime64[ns]
+ 2   나이           288 non-null    float64   ← 300 - 288 = 12개 결측!
+ 8   가입일         300 non-null    datetime64[ns]
 ```
 
 - **Non-Null Count 가 전체 행 수보다 작으면 결측치가 있다.**
@@ -255,13 +262,13 @@ df.describe(include="object")
 """)
 code(r"""
 # 개별 통계량 직접 계산 (시험에서 "평균을 구하시오" 형태로 출제)
-print("나이 평균   :", round(df["age"].mean(), 2))
-print("나이 중앙값 :", df["age"].median())
-print("나이 최대   :", df["age"].max())
-print("요금 표준편차:", round(df["monthly_fee"].std(), 2))
-print("사용량 90% 분위수:", df["data_usage_gb"].quantile(0.9))
+print("나이 평균   :", round(df["나이"].mean(), 2))
+print("나이 중앙값 :", df["나이"].median())
+print("나이 최대   :", df["나이"].max())
+print("요금 표준편차:", round(df["월요금"].std(), 2))
+print("사용량 90% 분위수:", df["데이터사용량"].quantile(0.9))
 print("\n여러 컬럼 한 번에:")
-print(df[["age", "monthly_fee", "data_usage_gb"]].mean())
+print(df[["나이", "월요금", "데이터사용량"]].mean())
 """)
 
 md(r"""
@@ -272,18 +279,18 @@ md(r"""
 - 분류 문제에서 **타깃(y)의 클래스 비율** 을 확인하는 데 반드시 씁니다. (불균형 데이터 판단)
 """)
 code(r"""
-print(df["plan"].value_counts(), "\n")
-print(df["plan"].value_counts(normalize=True).round(3), "\n")   # 비율
-print("고유값 목록:", df["region"].unique())
-print("고유값 개수:", df["region"].nunique())
+print(df["요금제"].value_counts(), "\n")
+print(df["요금제"].value_counts(normalize=True).round(3), "\n")   # 비율
+print("고유값 목록:", df["지역"].unique())
+print("고유값 개수:", df["지역"].nunique())
 """)
 code(r"""
-# 타깃 클래스 비율 확인: 이탈(Yes) 이 약 25% -> 불균형 데이터 (5회차 평가지표 선택에 영향)
-df["churn"].value_counts(normalize=True)
+# 타깃 클래스 비율 확인: 이탈(Yes) 이 약 20% -> 불균형 데이터 (5회차 평가지표 선택에 영향)
+df["이탈여부"].value_counts(normalize=True)
 """)
 code(r"""
 # 숫자형 컬럼에도 쓸 수 있다. bins 로 구간 나눠 세기
-df["age"].value_counts(bins=5, sort=False)
+df["나이"].value_counts(bins=5, sort=False)
 """)
 
 md(r"""
@@ -315,22 +322,22 @@ md(r"""
 | 숫자 → 문자 | `df["col"].astype(str)` |
 """)
 code(r"""
-# monthly_fee 는 소수점이 필요 없으니 정수로 (결측이 없어서 바로 가능)
-df["monthly_fee"] = df["monthly_fee"].astype(int)
+# 월요금 는 소수점이 필요 없으니 정수로 (결측이 없어서 바로 가능)
+df["월요금"] = df["월요금"].astype(int)
 
 # age 는 결측이 있어 int 로 바꾸면 에러 -> nullable 정수형 "Int64" 사용
-df["age"] = df["age"].astype("Int64")
+df["나이"] = df["나이"].astype("Int64")
 
-print(df[["monthly_fee", "age"]].dtypes)
-df[["monthly_fee", "age"]].head(3)
+print(df[["월요금", "나이"]].dtypes)
+df[["월요금", "나이"]].head(3)
 """)
 md(r"""
 > ⚠️ `Int64` 의 결측은 `NaN` 이 아니라 `pd.NA` 입니다. `np.where` 같은 numpy 함수에 넣으면 `TypeError: boolean value of NA is ambiguous` 가 납니다.  
 > 시험에서는 결측이 있는 숫자 컬럼을 **float 그대로 두고 4회차 방식으로 결측을 채운 뒤** 정수로 바꾸는 편이 안전합니다. 이후 실습을 위해 float 로 되돌립니다.
 """)
 code(r"""
-df["age"] = df["age"].astype(float)
-print(df["age"].dtype)
+df["나이"] = df["나이"].astype(float)
+print(df["나이"].dtype)
 """)
 code(r"""
 # to_numeric(errors="coerce"): 숫자로 바꿀 수 없는 값은 NaN 처리 (지저분한 데이터에서 매우 자주 사용)
@@ -339,9 +346,9 @@ print(pd.to_numeric(dirty, errors="coerce"))
 """)
 code(r"""
 # category 타입: 값 종류가 적은 문자열 컬럼에 사용. 순서를 줄 수도 있다.
-df["plan"] = pd.Categorical(df["plan"], categories=["3G", "LTE", "5G"], ordered=True)
-print(df["plan"].dtype)
-print("정렬하면 지정한 순서를 따른다:", df["plan"].sort_values().unique().tolist())
+df["요금제"] = pd.Categorical(df["요금제"], categories=["3G", "LTE", "5G"], ordered=True)
+print(df["요금제"].dtype)
+print("정렬하면 지정한 순서를 따른다:", df["요금제"].sort_values().unique().tolist())
 """)
 
 md(r"""
@@ -350,9 +357,9 @@ md(r"""
 - "데이터의 행과 열 개수를 출력하시오" → `df.shape`
 - "각 컬럼의 자료형과 결측치를 확인하시오" → `df.info()`
 - "수치형 컬럼의 기초 통계량을 출력하시오" → `df.describe()`
-- "`churn` 컬럼의 값별 개수(비율)를 출력하시오" → `df["churn"].value_counts(normalize=True)`
+- "`이탈여부` 컬럼의 값별 개수(비율)를 출력하시오" → `df["이탈여부"].value_counts(normalize=True)`
 - "결측치 개수를 컬럼별로 출력하시오" → `df.isnull().sum()`
-- "`age` 컬럼을 정수형으로 변환하시오" → `astype(int)` (결측이 있으면 먼저 처리)
+- "`나이` 컬럼을 정수형으로 변환하시오" → `astype(int)` (결측이 있으면 먼저 처리)
 
 ### ⚠️ 자주 하는 실수 (1장)
 
@@ -371,19 +378,19 @@ md(r"""
 
 | 코드 | 반환 타입 | 모양 |
 |------|------|------|
-| `df["age"]` | **Series** (1차원) | 값 목록 |
-| `df[["age"]]` | **DataFrame** (2차원) | 열이 1개인 표 |
-| `df[["age", "plan"]]` | DataFrame | 열이 2개인 표 |
+| `df["나이"]` | **Series** (1차원) | 값 목록 |
+| `df[["나이"]]` | **DataFrame** (2차원) | 열이 1개인 표 |
+| `df[["나이", "요금제"]]` | DataFrame | 열이 2개인 표 |
 
 > scikit-learn 의 `X` 는 2차원이어야 하므로 **특징이 하나여도 `df[["col"]]`** 로 뽑습니다. (1회차 복습)
 """)
 code(r"""
-s = df["age"]
-d = df[["age"]]
+s = df["나이"]
+d = df[["나이"]]
 print(type(s).__name__, s.shape)
 print(type(d).__name__, d.shape)
 
-df[["customer_id", "age", "plan"]].head(3)
+df[["고객ID", "나이", "요금제"]].head(3)
 """)
 
 md(r"""
@@ -397,7 +404,7 @@ md(r"""
 | 기준 | 인덱스/컬럼 **이름** | 정수 **위치** |
 | 슬라이스 끝 | **포함** (`loc[0:3]` → 0,1,2,3) | **미포함** (`iloc[0:3]` → 0,1,2) |
 | 열 지정 | `loc[행, "컬럼명"]` | `iloc[행, 열번호]` |
-| 조건식 | `loc[df["age"] > 30, "plan"]` 가능 | 불가 (불리언 배열은 가능) |
+| 조건식 | `loc[df["나이"] > 30, "요금제"]` 가능 | 불가 (불리언 배열은 가능) |
 
 기본 RangeIndex(0, 1, 2 …) 에서는 이름과 위치가 같아 헷갈리지만, **인덱스를 바꾸면 완전히 달라집니다.**
 """)
@@ -408,20 +415,20 @@ print("iloc[0:2] ->", len(df.iloc[0:2]), "행 (끝 미포함)")
 """)
 code(r"""
 # 행 + 열 동시에 지정
-print(df.loc[0, "age"])                       # 0번 행의 age
+print(df.loc[0, "나이"])                       # 0번 행의 age
 print(df.iloc[0, 2])                          # 0번 행, 2번 열 (age)
-df.loc[0:2, ["customer_id", "age", "plan"]]   # 행 범위 + 열 이름 목록
+df.loc[0:2, ["고객ID", "나이", "요금제"]]   # 행 범위 + 열 이름 목록
 """)
 code(r"""
-# 인덱스를 customer_id 로 바꾸면 loc 와 iloc 의 차이가 분명해진다
-dfc = df.set_index("customer_id")
-print(dfc.loc["C0003", ["age", "plan"]].to_dict())   # 이름으로
+# 인덱스를 고객ID 로 바꾸면 loc 와 iloc 의 차이가 분명해진다
+dfc = df.set_index("고객ID")
+print(dfc.loc["C0003", ["나이", "요금제"]].to_dict())   # 이름으로
 print(dfc.iloc[2, [1, 4]].to_dict())                 # 위치로 (같은 행)
-dfc.loc["C0002":"C0004", "age":"plan"]               # 이름 슬라이스 (양 끝 포함)
+dfc.loc["C0002":"C0004", "나이":"요금제"]               # 이름 슬라이스 (양 끝 포함)
 """)
 code(r"""
 # iloc 의 음수 위치, 마지막 행/열
-print("마지막 행:", df.iloc[-1]["customer_id"])
+print("마지막 행:", df.iloc[-1]["고객ID"])
 print("마지막 열 이름:", df.columns[-1], "| 값 3개:", df.iloc[:3, -1].tolist())
 """)
 
@@ -429,50 +436,56 @@ md(r"""
 ### 2.3 조건 필터링 (Boolean Indexing)
 
 #### 직관적 설명
-`df["age"] > 40` 은 각 행마다 True/False 가 적힌 **체크리스트(Series)** 를 만듭니다. 그 체크리스트를 `df[...]` 에 넣으면 True 인 행만 남습니다.
+`df["나이"] > 40` 은 각 행마다 True/False 가 적힌 **체크리스트(Series)** 를 만듭니다. 그 체크리스트를 `df[...]` 에 넣으면 True 인 행만 남습니다.
 
 | 조건 | 코드 | 주의 |
 |------|------|------|
 | AND | `(조건1) & (조건2)` | `and` 아님! 각 조건을 **괄호** 로 감싼다 |
 | OR | `(조건1) \| (조건2)` | `or` 아님 |
 | NOT | `~(조건)` | `not` 아님 |
-| 목록 포함 | `df["region"].isin(["서울", "경기"])` | `==` 여러 개 대신 |
-| 범위 | `df["age"].between(30, 39)` | 양 끝 포함 |
-| 문자열 포함 | `df["customer_id"].str.contains("00")` | `.str` 접근자 |
-| 결측 여부 | `df["age"].isna()` / `.notna()` | `== np.nan` 은 항상 False |
-| SQL 스타일 | `df.query("age > 40 and plan == '5G'")` | 문자열 안에 조건 |
+| 목록 포함 | `df["지역"].isin(["서울", "경기"])` | `==` 여러 개 대신 |
+| 범위 | `df["나이"].between(30, 39)` | 양 끝 포함 |
+| 문자열 포함 | `df["고객ID"].str.contains("00")` | `.str` 접근자 |
+| 결측 여부 | `df["나이"].isna()` / `.notna()` | `== np.nan` 은 항상 False |
+| SQL 스타일 | `` df.query("`나이` > 40 and `요금제` == '5G'") `` | 문자열 안에 조건. **한글 컬럼명은 백틱(`)으로 감싼다** |
 """)
 code(r"""
-cond = df["age"] > 60
+cond = df["나이"] > 60
 print(type(cond).__name__, "| True 개수:", cond.sum())   # True == 1 이므로 sum 이 개수
 df[cond].head(3)
 """)
 code(r"""
 # AND / OR / NOT : 각 조건에 괄호 필수
-senior_5g = df[(df["age"] >= 60) & (df["plan"] == "5G")]
+senior_5g = df[(df["나이"] >= 60) & (df["요금제"] == "5G")]
 print("60세 이상 & 5G :", len(senior_5g))
 
-young_or_3g = df[(df["age"] < 25) | (df["plan"] == "3G")]
+young_or_3g = df[(df["나이"] < 25) | (df["요금제"] == "3G")]
 print("25세 미만 | 3G :", len(young_or_3g))
 
-not_seoul = df[~(df["region"] == "서울")]
+not_seoul = df[~(df["지역"] == "서울")]
 print("서울이 아닌 고객:", len(not_seoul))
 """)
 code(r"""
 # isin / between / str.contains / isna
-print("수도권(서울,경기)   :", df[df["region"].isin(["서울", "경기"])].shape[0])
-print("30대              :", df[df["age"].between(30, 39)].shape[0])
-print("ID 에 '00' 포함    :", df[df["customer_id"].str.contains("00")].shape[0])
-print("나이 결측          :", df[df["age"].isna()].shape[0])
+print("수도권(서울,경기)   :", df[df["지역"].isin(["서울", "경기"])].shape[0])
+print("30대              :", df[df["나이"].between(30, 39)].shape[0])
+print("ID 에 '00' 포함    :", df[df["고객ID"].str.contains("00")].shape[0])
+print("나이 결측          :", df[df["나이"].isna()].shape[0])
 """)
 code(r"""
-# query(): 조건이 길 때 읽기 좋다. 외부 변수는 @ 로 참조
+# query(): 조건이 길 때 읽기 좋다. 외부 변수는 @ 로 참조. 한글 컬럼명은 백틱(`)으로 감싼다
 min_age = 50
-df.query("age >= @min_age and plan == '5G' and churn == 'Yes'")[["customer_id", "age", "plan", "churn"]].head()
+df.query("`나이` >= @min_age and `요금제` == '5G' and `이탈여부` == 'Yes'")[["고객ID", "나이", "요금제", "이탈여부"]].head()
 """)
 code(r"""
 # 조건 + 열 선택은 loc 로 한 번에 (시험 단골)
-df.loc[df["churn"] == "Yes", ["customer_id", "tenure_months", "monthly_fee"]].head()
+df.loc[df["이탈여부"] == "Yes", ["고객ID", "가입개월수", "월요금"]].head()
+""")
+code(r"""
+# query() 에서 한글 컬럼명은 백틱(`)으로 감싼다. 불리언 인덱싱은 그냥 df["한글"] 로 쓰면 된다.
+tmp = df.assign(연요금=df["월요금"] * 12)          # assign: 새 컬럼을 추가한 복사본 반환
+print("query  :", len(tmp.query("`연요금` >= 900000")))
+print("불리언 :", len(tmp[tmp["연요금"] >= 900000]))
 """)
 
 md(r"""
@@ -483,20 +496,20 @@ md(r"""
 - 정렬은 **새 DataFrame 을 반환** 하며 원본은 그대로. 원본을 바꾸려면 다시 대입하거나 `inplace=True`.
 """)
 code(r"""
-df.sort_values("monthly_fee", ascending=False).head(3)
+df.sort_values("월요금", ascending=False).head(3)
 """)
 code(r"""
 # 다중 정렬: 요금제 오름차순, 같은 요금제 안에서는 사용량 내림차순
-df.sort_values(["plan", "data_usage_gb"], ascending=[True, False])[["customer_id", "plan", "data_usage_gb"]].head(6)
+df.sort_values(["요금제", "데이터사용량"], ascending=[True, False])[["고객ID", "요금제", "데이터사용량"]].head(6)
 """)
 code(r"""
 # 상위/하위 N 개: nlargest / nsmallest (정렬 + head 를 한 번에)
-print(df.nlargest(3, "data_usage_gb")[["customer_id", "data_usage_gb"]])
-print(df.nsmallest(3, "tenure_months")[["customer_id", "tenure_months"]])
+print(df.nlargest(3, "데이터사용량")[["고객ID", "데이터사용량"]])
+print(df.nsmallest(3, "가입개월수")[["고객ID", "가입개월수"]])
 """)
 code(r"""
 # 정렬 후 인덱스가 뒤섞인다 -> reset_index(drop=True) 로 0부터 다시
-top = df.sort_values("age", ascending=False).head(3)
+top = df.sort_values("나이", ascending=False).head(3)
 print("정렬 직후 인덱스     :", top.index.tolist())
 print("reset_index 후 인덱스:", top.reset_index(drop=True).index.tolist())
 """)
@@ -506,32 +519,42 @@ md(r"""
 
 | 작업 | 코드 |
 |------|------|
-| 연산으로 추가 | `df["yearly_fee"] = df["monthly_fee"] * 12` |
-| 조건으로 추가 (2갈래) | `df["senior"] = np.where(df["age"] >= 60, "Y", "N")` |
+| 연산으로 추가 | `df["연요금"] = df["월요금"] * 12` |
+| 조건으로 추가 (2갈래) | `df["시니어여부"] = np.where(df["나이"] >= 60, "Y", "N")` |
 | 조건으로 추가 (여러 갈래) | `np.select([...], [...], default=...)` 또는 `pd.cut` (4회차) |
-| 값 매핑 | `df["gender_kr"] = df["gender"].map({"M": "남", "F": "여"})` |
+| 값 매핑 | `df["성별명"] = df["성별"].map({"M": "남", "F": "여"})` |
 | 함수 적용 | `df["col"].apply(함수)` / `apply(lambda x: ...)` |
 | 삭제 | `df.drop(columns=["col1", "col2"])` 또는 `df.drop("col", axis=1)` |
 | 이름 변경 | `df.rename(columns={"old": "new"})` |
 | 전체 이름 변경 | `df.columns = [...]` (개수가 정확히 맞아야 함) |
+
+#### 컬럼명은 한글도 된다
+
+pandas 컬럼명은 **어떤 문자열이든** 가능합니다. 실무 데이터는 한글 컬럼명이 흔하고, 시험 데이터도 한글 컬럼명으로 나올 수 있으므로 익숙해져야 합니다. 이 과정에서 **새로 만드는 컬럼은 한글** 로 짓습니다. 다만 아래 세 가지만 주의합니다.
+
+| 상황 | 주의점 |
+|------|------|
+| `df.query()` 안에서 사용 | 한글·공백·기호가 있는 이름은 **백틱** 으로 감싼다: `` df.query("`연요금` > 600000") `` |
+| 점 표기 `df.컬럼명` | 한글도 동작하지만 공백·기호가 있으면 불가. **항상 `df["컬럼명"]` 을 쓰는 습관** 이 안전 |
+| CSV 저장 후 엑셀에서 열기 | `encoding="utf-8-sig"` 로 저장해야 컬럼명이 깨지지 않는다 (1회차) |
 """)
 code(r"""
-df["yearly_fee"] = df["monthly_fee"] * 12                                   # 연산
-df["fee_per_gb"] = (df["monthly_fee"] / df["data_usage_gb"]).round(0)       # 결측이 있으면 결과도 NaN
-df["is_senior"] = np.where(df["age"] >= 60, "Y", "N")                       # 2갈래 조건
-df["gender_kr"] = df["gender"].map({"M": "남", "F": "여"})                  # 매핑
+df["연요금"] = df["월요금"] * 12                                       # 연산
+df["GB당요금"] = (df["월요금"] / df["데이터사용량"]).round(0)         # 결측이 있으면 결과도 NaN
+df["시니어여부"] = np.where(df["나이"] >= 60, "Y", "N")                       # 2갈래 조건
+df["성별명"] = df["성별"].map({"M": "남", "F": "여"})                      # 매핑
 
-df[["customer_id", "monthly_fee", "yearly_fee", "data_usage_gb", "fee_per_gb", "age", "is_senior", "gender_kr"]].head()
+df[["고객ID", "월요금", "연요금", "데이터사용량", "GB당요금", "나이", "시니어여부", "성별명"]].head()
 """)
 code(r"""
 # 여러 갈래 조건: np.select (조건 리스트, 값 리스트, 기본값)
 conditions = [
-  df["data_usage_gb"] < 10,
-  df["data_usage_gb"] < 30,
+  df["데이터사용량"] < 10,
+  df["데이터사용량"] < 30,
 ]
 labels = ["low", "mid"]
-df["usage_level"] = np.select(conditions, labels, default="high")
-df["usage_level"].value_counts()
+df["사용량등급"] = np.select(conditions, labels, default="high")
+df["사용량등급"].value_counts()
 """)
 code(r"""
 # apply + lambda: 한 값씩 함수를 적용 (map 으로 안 되는 복잡한 규칙에)
@@ -543,27 +566,65 @@ def fee_grade(fee: int) -> str:
   return "베이직"
 
 
-df["fee_grade"] = df["monthly_fee"].apply(fee_grade)
-df["id_number"] = df["customer_id"].apply(lambda x: int(x[1:]))    # "C0007" -> 7
-df[["customer_id", "id_number", "monthly_fee", "fee_grade"]].head(3)
+df["요금등급"] = df["월요금"].apply(fee_grade)
+df["고객번호"] = df["고객ID"].apply(lambda x: int(x[1:]))    # "C0007" -> 7
+df[["고객ID", "고객번호", "월요금", "요금등급"]].head(3)
+""")
+md(r"""
+#### `apply` 의 `axis`: 함수에 무엇을 한 덩어리씩 넘길지 정한다
+
+| axis | 함수에 들어오는 것 | 함수 호출 횟수 | 쓰는 상황 |
+|:---:|------|:---:|------|
+| `0` (기본값) | **열 하나** (컬럼 전체가 Series) | 열 개수만큼 | 컬럼별 통계 (`df.apply(lambda col: col.max())`) |
+| `1` | **행 하나** (한 고객의 값들이 Series) | 행 개수만큼 | 여러 컬럼을 **동시에** 보고 행마다 판단 |
+
+아래 위험군 규칙은 "이 고객의 가입개월수 **와** 요금제를 같이" 봐야 하므로 행 하나를 통째로 받아야 합니다. 그래서 `axis=1` 이고, 함수 안에서 `row["가입개월수"]` 처럼 **컬럼 이름** 으로 값을 꺼냅니다.
+
+> 외우는 법: `axis=1` 은 가로 방향(→)으로 한 줄씩. `df.sum(axis=1)` 이 행마다 가로로 더하고, `df.drop("col", axis=1)` 이 가로 방향의 항목(열)을 지우는 것과 같은 규칙입니다.
 """)
 code(r"""
 # 행 단위 apply (axis=1): 여러 컬럼을 동시에 보는 규칙
-df["risk"] = df.apply(
-  lambda row: "high" if (row["tenure_months"] < 12 and row["plan"] == "3G") else "normal",
+df["위험군"] = df.apply(
+  lambda row: "high" if (row["가입개월수"] < 12 and row["요금제"] == "3G") else "normal",
   axis=1,
 )
-df["risk"].value_counts()
+df["위험군"].value_counts()
+""")
+code(r"""
+# axis 에 따라 함수에 들어오는 것이 무엇인지 직접 확인 (첫 번째 호출만 출력)
+sample = df[["고객ID", "가입개월수", "요금제"]].head(3)
+
+print("=== axis=1 : 행 하나가 Series 로 들어온다 (인덱스 = 컬럼 이름) ===")
+sample.apply(lambda row: print(row.to_dict()) if row.name == 0 else None, axis=1)
+
+print("\n=== axis=0 : 열 하나가 Series 로 들어온다 (인덱스 = 행 번호) ===")
+sample.apply(lambda col: print(col.name, "->", col.tolist()) if col.name == "고객ID" else None, axis=0)
+""")
+code(r"""
+# axis=0 으로 잘못 주면: 열이 들어오므로 row["가입개월수"] 를 찾을 수 없어 KeyError
+try:
+  df.apply(lambda row: "high" if (row["가입개월수"] < 12 and row["요금제"] == "3G") else "normal", axis=0)
+except KeyError as e:
+  print("KeyError:", e, " <- 열(고객ID 컬럼 전체)의 인덱스는 행 번호라서 '가입개월수' 라는 키가 없다")
+""")
+md(r"""
+> **⚠️ 행 단위 `apply` 는 느리다.** 파이썬 함수를 행 수만큼(여기서는 300번) 호출하기 때문입니다. 위 규칙처럼 조건 조합만 필요하면 **불리언 연산 + `np.where`** 가 훨씬 빠르고 시험에서도 안전합니다. `apply(axis=1)` 은 "불리언 연산으로 표현하기 어려운 복잡한 규칙" 에만 씁니다.
+""")
+code(r"""
+# 같은 결과를 apply 없이: 벡터 연산은 300행이든 300만 행이든 한 번에 처리한다
+df["위험군2"] = np.where((df["가입개월수"] < 12) & (df["요금제"] == "3G"), "high", "normal")
+print("두 방법의 결과가 같은가?", (df["위험군"] == df["위험군2"]).all())
+df = df.drop(columns=["위험군2"])
 """)
 code(r"""
 # 삭제와 이름 변경 (원본을 바꾸려면 다시 대입!)
-df = df.drop(columns=["id_number", "risk"])
-df = df.rename(columns={"gender_kr": "성별", "is_senior": "시니어여부"})
+df = df.drop(columns=["고객번호", "위험군"])
+df = df.rename(columns={"연요금": "연간요금", "GB당요금": "GB당_요금"})
 print(df.columns.tolist())
 """)
 code(r"""
 # 컬럼 순서 바꾸기: 원하는 순서의 리스트로 다시 선택
-front = ["customer_id", "churn"]
+front = ["고객ID", "이탈여부"]
 df = df[front + [c for c in df.columns if c not in front]]
 df.head(2)
 """)
@@ -581,11 +642,11 @@ dup = pd.concat([df.head(3), df.head(2)], ignore_index=True)
 print("중복 여부:", dup.duplicated().tolist())
 print("중복 개수:", dup.duplicated().sum())
 print("제거 후 행 수:", len(dup.drop_duplicates()))
-print("plan 기준 중복 제거(첫 값 유지):", len(dup.drop_duplicates(subset=["plan"], keep="first")))
+print("plan 기준 중복 제거(첫 값 유지):", len(dup.drop_duplicates(subset=["요금제"], keep="first")))
 """)
 code(r"""
 # set_index / reset_index 왕복
-dfi = df.set_index("customer_id")
+dfi = df.set_index("고객ID")
 print("인덱스 이름:", dfi.index.name, "| 컬럼 수:", dfi.shape[1])
 dfr = dfi.reset_index()
 print("reset 후 컬럼 수:", dfr.shape[1], "| 첫 컬럼:", dfr.columns[0])
@@ -598,49 +659,50 @@ md(r"""
 "~별 평균/합계/개수" 를 구하는 도구. **분할(split) → 적용(apply) → 결합(combine)** 순서로 동작한다.
 
 #### 직관적 설명
-엑셀의 피벗 테이블입니다. `df.groupby("plan")["monthly_fee"].mean()` 은 "요금제별로 묶어서 → 각 묶음의 월요금 → 평균" 입니다.
+엑셀의 피벗 테이블입니다. `df.groupby("요금제")["월요금"].mean()` 은 "요금제별로 묶어서 → 각 묶음의 월요금 → 평균" 입니다.
 
 | 형태 | 코드 | 결과 |
 |------|------|------|
-| 단일 키, 단일 통계 | `df.groupby("plan")["monthly_fee"].mean()` | Series |
-| 다중 키 | `df.groupby(["plan", "gender"])["monthly_fee"].mean()` | MultiIndex Series |
+| 단일 키, 단일 통계 | `df.groupby("요금제")["월요금"].mean()` | Series |
+| 다중 키 | `df.groupby(["요금제", "성별"])["월요금"].mean()` | MultiIndex Series |
 | 여러 통계 | `.agg(["mean", "max", "count"])` | DataFrame |
-| 컬럼별 다른 통계 | `.agg({"age": "mean", "monthly_fee": "sum"})` | DataFrame |
-| 결과 컬럼 이름 지정 | `.agg(avg_fee=("monthly_fee", "mean"))` | DataFrame |
+| 컬럼별 다른 통계 | `.agg({"나이": "mean", "월요금": "sum"})` | DataFrame |
+| 결과 컬럼 이름 지정 | `.agg(avg_fee=("월요금", "mean"))` | DataFrame |
 | 그룹 크기 | `.size()` (결측 포함) vs `.count()` (결측 제외) | |
 """)
 code(r"""
-df.groupby("plan", observed=True)["monthly_fee"].mean()
+df.groupby("요금제", observed=True)["월요금"].mean()
 """)
 code(r"""
 # 다중 키 + 여러 통계 -> reset_index() 로 평평한 표로
 summary = (
-  df.groupby(["plan", "gender"], observed=True)["monthly_fee"]
+  df.groupby(["요금제", "성별"], observed=True)["월요금"]
     .agg(["mean", "max", "count"])
     .round(0)
+    .rename(columns={"mean": "평균요금", "max": "최대요금", "count": "고객수"})
     .reset_index()
 )
 summary
 """)
 code(r"""
 # 컬럼별로 다른 통계 + 결과 이름 지정 (named aggregation)
-df.groupby("region").agg(
-  고객수=("customer_id", "count"),
-  평균나이=("age", "mean"),
-  총요금=("monthly_fee", "sum"),
-  이탈률=("churn", lambda s: (s == "Yes").mean()),
+df.groupby("지역").agg(
+  고객수=("고객ID", "count"),
+  평균나이=("나이", "mean"),
+  총요금=("월요금", "sum"),
+  이탈률=("이탈여부", lambda s: (s == "Yes").mean()),
 ).round(2).sort_values("이탈률", ascending=False)
 """)
 code(r"""
 # size vs count: 결측이 있는 컬럼에서 차이가 난다
-print("size  (결측 포함):", df.groupby("plan", observed=True).size().to_dict())
-print("count (age 결측 제외):", df.groupby("plan", observed=True)["age"].count().to_dict())
+print("size  (결측 포함):", df.groupby("요금제", observed=True).size().to_dict())
+print("count (age 결측 제외):", df.groupby("요금제", observed=True)["나이"].count().to_dict())
 """)
 code(r"""
 # transform: 그룹 통계를 원래 행 길이로 되돌려 붙인다 (그룹 평균 대비 얼마나 큰가?)
-df["plan_avg_fee"] = df.groupby("plan", observed=True)["monthly_fee"].transform("mean")
-df["fee_vs_plan_avg"] = (df["monthly_fee"] - df["plan_avg_fee"]).round(0)
-df[["customer_id", "plan", "monthly_fee", "plan_avg_fee", "fee_vs_plan_avg"]].head()
+df["요금제평균요금"] = df.groupby("요금제", observed=True)["월요금"].transform("mean")
+df["평균대비차이"] = (df["월요금"] - df["요금제평균요금"]).round(0)
+df[["고객ID", "요금제", "월요금", "요금제평균요금", "평균대비차이"]].head()
 """)
 
 md(r"""
@@ -650,15 +712,15 @@ md(r"""
 - `pd.crosstab(행, 열)` : 두 범주형 변수의 **빈도표**. `normalize="index"` 로 행 기준 비율.
 """)
 code(r"""
-pd.pivot_table(df, index="region", columns="plan", values="monthly_fee", aggfunc="mean", observed=True).round(0)
+pd.pivot_table(df, index="지역", columns="요금제", values="월요금", aggfunc="mean", observed=True).round(0)
 """)
 code(r"""
 # 빈도표 + 합계
-pd.crosstab(df["region"], df["churn"], margins=True)
+pd.crosstab(df["지역"], df["이탈여부"], margins=True)
 """)
 code(r"""
 # 행 기준 비율: 지역별 이탈률을 바로 읽을 수 있다
-pd.crosstab(df["region"], df["churn"], normalize="index").round(3)
+pd.crosstab(df["지역"], df["이탈여부"], normalize="index").round(3)
 """)
 
 md(r"""
@@ -684,22 +746,22 @@ print(plans)   # 요금제 정보 (1회차 Excel 의 plans 시트)
 """)
 code(r"""
 # 고객 데이터에 요금제 정보를 붙인다 (plan 컬럼이 공통 키)
-df["plan"] = df["plan"].astype(str)          # category 와 object 키 타입을 맞춘다
-merged = pd.merge(df, plans, on="plan", how="left")
+df["요금제"] = df["요금제"].astype(str)          # category 와 object 키 타입을 맞춘다
+merged = pd.merge(df, plans, on="요금제", how="left")
 print("merge 전:", df.shape, "-> 후:", merged.shape)
-merged[["customer_id", "plan", "speed_mbps", "launch_year"]].head()
+merged[["고객ID", "요금제", "속도Mbps", "출시연도"]].head()
 """)
 code(r"""
 # how 에 따른 행 수 차이 실험: 오른쪽 표에 5G 가 없고, 왼쪽에 없는 "6G" 가 있다면?
-plans_partial = pd.DataFrame({"plan": ["LTE", "3G", "6G"], "speed_mbps": [150, 10, 5000]})
+plans_partial = pd.DataFrame({"요금제": ["LTE", "3G", "6G"], "속도Mbps": [150, 10, 5000]})
 for how in ["inner", "left", "right", "outer"]:
-  m = pd.merge(df[["customer_id", "plan"]], plans_partial, on="plan", how=how)
-  print(f"{how:<6}: {len(m):>4} 행 | speed 결측 {m['speed_mbps'].isna().sum():>3}")
+  m = pd.merge(df[["고객ID", "요금제"]], plans_partial, on="요금제", how=how)
+  print(f"{how:<6}: {len(m):>4} 행 | speed 결측 {m['속도Mbps'].isna().sum():>3}")
 """)
 code(r"""
 # 키 이름이 다를 때: left_on / right_on
-plans_renamed = plans.rename(columns={"plan": "plan_name"})
-pd.merge(df[["customer_id", "plan"]], plans_renamed, left_on="plan", right_on="plan_name", how="left").head(3)
+plans_renamed = plans.rename(columns={"요금제": "요금제명"})
+pd.merge(df[["고객ID", "요금제"]], plans_renamed, left_on="요금제", right_on="요금제명", how="left").head(3)
 """)
 code(r"""
 # concat: 행 방향으로 이어 붙이기 (예: 월별 파일 합치기)
@@ -709,8 +771,8 @@ stacked = pd.concat([part1, part2], axis=0, ignore_index=True)
 print("행 방향 concat:", part1.shape, "+", part2.shape, "->", stacked.shape)
 
 # 열 방향: 인덱스가 같아야 올바르게 붙는다
-left_cols = df[["customer_id", "age"]]
-right_cols = df[["plan", "churn"]]
+left_cols = df[["고객ID", "나이"]]
+right_cols = df[["요금제", "이탈여부"]]
 side = pd.concat([left_cols, right_cols], axis=1)
 print("열 방향 concat:", side.shape)
 """)
@@ -729,25 +791,25 @@ md(r"""
 | `.dt.quarter` | 분기 |
 """)
 code(r"""
-sales["year"] = sales["date"].dt.year
-sales["month"] = sales["date"].dt.month
-sales["dayofweek"] = sales["date"].dt.dayofweek
-sales["weekday"] = sales["date"].dt.day_name()
-sales["is_weekend"] = sales["dayofweek"] >= 5
+sales["연"] = sales["날짜"].dt.year
+sales["월"] = sales["날짜"].dt.month
+sales["요일번호"] = sales["날짜"].dt.dayofweek
+sales["요일"] = sales["날짜"].dt.day_name()
+sales["주말여부"] = sales["요일번호"] >= 5
 sales.head()
 """)
 code(r"""
 # 월별 매장별 매출 합계 (pivot_table)
-monthly = pd.pivot_table(sales, index="month", columns="store", values="amount", aggfunc="sum")
+monthly = pd.pivot_table(sales, index="월", columns="매장", values="매출액", aggfunc="sum")
 monthly.head()
 """)
 code(r"""
 # 요일별 평균 판매량: 주말 효과가 있나?
-sales.groupby("dayofweek")["qty"].mean().round(2)
+sales.groupby("요일번호")["판매량"].mean().round(2)
 """)
 code(r"""
 # 월별 총매출 추이 (간단한 시각화 맛보기, 자세한 시각화는 3회차)
-monthly_total = sales.groupby("month")["amount"].sum() / 1_000_000
+monthly_total = sales.groupby("월")["매출액"].sum() / 1_000_000
 
 plt.figure(figsize=(8, 3.5))
 monthly_total.plot(kind="bar", color="tab:blue")
@@ -760,21 +822,21 @@ plt.show()
 """)
 code(r"""
 # 날짜 범위 필터링: 문자열 비교가 그대로 된다
-q2 = sales[(sales["date"] >= "2024-04-01") & (sales["date"] <= "2024-06-30")]
-print("2분기 행 수:", len(q2), "| 총매출:", f"{q2['amount'].sum():,}")
+q2 = sales[(sales["날짜"] >= "2024-04-01") & (sales["날짜"] <= "2024-06-30")]
+print("2분기 행 수:", len(q2), "| 총매출:", f"{q2['매출액'].sum():,}")
 
 # 연-월 단위 그룹: to_period
-sales.groupby(sales["date"].dt.to_period("M"))["amount"].sum().head(3)
+sales.groupby(sales["날짜"].dt.to_period("M"))["매출액"].sum().head(3)
 """)
 
 md(r"""
 ### 📝 시험 출제 포인트 (2장)
 
-- "`age` 가 40 이상이고 `plan` 이 `5G` 인 고객 수" → `len(df[(df["age"] >= 40) & (df["plan"] == "5G")])`
-- "`monthly_fee` 기준 내림차순 상위 10개" → `df.sort_values("monthly_fee", ascending=False).head(10)` 또는 `nlargest`
-- "`region` 별 `monthly_fee` 평균" → `df.groupby("region")["monthly_fee"].mean()`
-- "불필요한 컬럼 `customer_id` 삭제" → `df = df.drop(columns=["customer_id"])` (또는 `axis=1`). **모델링 전 ID 컬럼 삭제** 는 거의 매번 출제됩니다.
-- "두 데이터를 `plan` 기준으로 결합" → `pd.merge(df1, df2, on="plan", how="left")`
+- "`나이` 가 40 이상이고 `요금제` 가 `5G` 인 고객 수" → `len(df[(df["나이"] >= 40) & (df["요금제"] == "5G")])`
+- "`월요금` 기준 내림차순 상위 10개" → `df.sort_values("월요금", ascending=False).head(10)` 또는 `nlargest`
+- "`지역` 별 `월요금` 평균" → `df.groupby("지역")["월요금"].mean()`
+- "불필요한 컬럼 `고객ID` 삭제" → `df = df.drop(columns=["고객ID"])` (또는 `axis=1`). **모델링 전 ID 컬럼 삭제** 는 거의 매번 출제됩니다.
+- "두 데이터를 `요금제` 기준으로 결합" → `pd.merge(df1, df2, on="요금제", how="left")`
 - "컬럼명 변경" → `df.rename(columns={...})`
 - 파생 변수 생성 → `np.where`, `apply`, `map` 중 하나
 
@@ -796,15 +858,15 @@ md(r"""
 `data/customers.csv` 를 다시 읽어 시작합니다. 각 문제의 빈 셀에 코드를 작성하세요. 정답은 접힌 영역에 있습니다.
 """)
 code(r"""
-df = pd.read_csv(f"{DATA_DIR}/customers.csv", dtype={"postal_code": str}, parse_dates=["join_date"])
-sales = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["date"])
+df = pd.read_csv(f"{DATA_DIR}/customers.csv", dtype={"우편번호": str}, parse_dates=["가입일"])
+sales = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["날짜"])
 plans = pd.read_excel(f"{DATA_DIR}/customers.xlsx", sheet_name="plans")
 print(df.shape, sales.shape, plans.shape)
 """)
 md(r"""
 ### 문제 1. 구조 파악
 
-`df` 의 행·열 개수, 컬럼별 결측치 개수, `churn` 의 값별 비율을 각각 출력하시오.
+`df` 의 행·열 개수, 컬럼별 결측치 개수, `이탈여부` 의 값별 비율을 각각 출력하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -816,14 +878,14 @@ md(r"""
 ```python
 print(df.shape)
 print(df.isnull().sum())
-print(df["churn"].value_counts(normalize=True))
+print(df["이탈여부"].value_counts(normalize=True))
 ```
 
 </details>
 
 ### 문제 2. 조건 필터링
 
-`region` 이 `"서울"` 또는 `"경기"` 이고, `data_usage_gb` 가 30 이상인 고객을 `q2` 에 저장하고 행 수를 출력하시오.
+`지역` 이 `"서울"` 또는 `"경기"` 이고, `데이터사용량` 이 30 이상인 고객을 `q2` 에 저장하고 행 수를 출력하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -834,7 +896,7 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-q2 = df[df["region"].isin(["서울", "경기"]) & (df["data_usage_gb"] >= 30)]
+q2 = df[df["지역"].isin(["서울", "경기"]) & (df["데이터사용량"] >= 30)]
 print(len(q2))
 ```
 
@@ -842,7 +904,7 @@ print(len(q2))
 
 ### 문제 3. 정렬과 선택
 
-`tenure_months` 가 가장 긴 고객 5명의 `customer_id`, `tenure_months`, `monthly_fee` 를 출력하시오. (인덱스는 0부터 다시 매길 것)
+`가입개월수` 가 가장 긴 고객 5명의 `고객ID`, `가입개월수`, `월요금` 을 출력하시오. (인덱스는 0부터 다시 매길 것)
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -854,8 +916,8 @@ md(r"""
 
 ```python
 q3 = (
-  df.sort_values("tenure_months", ascending=False)
-    .head(5)[["customer_id", "tenure_months", "monthly_fee"]]
+  df.sort_values("가입개월수", ascending=False)
+    .head(5)[["고객ID", "가입개월수", "월요금"]]
     .reset_index(drop=True)
 )
 q3
@@ -865,7 +927,7 @@ q3
 
 ### 문제 4. 파생 변수
 
-`age` 를 기준으로 `age_group` 컬럼을 만드시오. 30 미만 `"20대이하"`, 30 이상 50 미만 `"30-40대"`, 50 이상 `"50대이상"`, 결측은 `"미상"`. 그리고 `age_group` 별 고객 수를 출력하시오.
+`나이` 를 기준으로 `연령대` 컬럼을 만드시오. 30 미만 `"20대이하"`, 30 이상 50 미만 `"30-40대"`, 50 이상 `"50대이상"`, 결측은 `"미상"`. 그리고 `연령대` 별 고객 수를 출력하시오.
 
 > **힌트**: `np.select` 를 쓰고, 결측 조건을 **가장 먼저** 두어야 `NaN` 비교(항상 False) 문제를 피할 수 있다.
 """)
@@ -878,20 +940,20 @@ md(r"""
 
 ```python
 conditions = [
-  df["age"].isna(),
-  df["age"] < 30,
-  df["age"] < 50,
+  df["나이"].isna(),
+  df["나이"] < 30,
+  df["나이"] < 50,
 ]
 labels = ["미상", "20대이하", "30-40대"]
-df["age_group"] = np.select(conditions, labels, default="50대이상")
-print(df["age_group"].value_counts())
+df["연령대"] = np.select(conditions, labels, default="50대이상")
+print(df["연령대"].value_counts())
 ```
 
 </details>
 
 ### 문제 5. 그룹 집계
 
-`plan` 별로 고객 수, 평균 `monthly_fee`, 이탈률(`churn == "Yes"` 비율)을 구해 `q5` 에 저장하시오. 컬럼명은 `고객수`, `평균요금`, `이탈률` 로 하고, 이탈률 내림차순으로 정렬하시오.
+`요금제` 별로 고객 수, 평균 `월요금`, 이탈률(`이탈여부 == "Yes"` 비율)을 구해 `q5` 에 저장하시오. 컬럼명은 `고객수`, `평균요금`, `이탈률` 으로 하고, 이탈률 내림차순으로 정렬하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -903,11 +965,11 @@ md(r"""
 
 ```python
 q5 = (
-  df.groupby("plan")
+  df.groupby("요금제")
     .agg(
-      고객수=("customer_id", "count"),
-      평균요금=("monthly_fee", "mean"),
-      이탈률=("churn", lambda s: (s == "Yes").mean()),
+      고객수=("고객ID", "count"),
+      평균요금=("월요금", "mean"),
+      이탈률=("이탈여부", lambda s: (s == "Yes").mean()),
     )
     .sort_values("이탈률", ascending=False)
 )
@@ -918,7 +980,7 @@ q5
 
 ### 문제 6. 결합
 
-`df` 와 `plans` 를 `plan` 기준으로 왼쪽 결합(left join)하여 `q6` 에 저장하고, `speed_mbps` 별 평균 `data_usage_gb` 를 출력하시오.
+`df` 와 `plans` 를 `요금제` 기준으로 왼쪽 결합(left join)하여 `q6` 에 저장하고, `속도Mbps` 별 평균 `데이터사용량` 을 출력하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -929,15 +991,15 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-q6 = pd.merge(df, plans, on="plan", how="left")
-print(q6.groupby("speed_mbps")["data_usage_gb"].mean().round(2))
+q6 = pd.merge(df, plans, on="요금제", how="left")
+print(q6.groupby("속도Mbps")["데이터사용량"].mean().round(2))
 ```
 
 </details>
 
 ### 문제 7. 날짜 집계
 
-`sales` 에서 **분기별(quarter) · 매장별** 매출(`amount`) 합계를 pivot_table 로 만들어 `q7` 에 저장하고 출력하시오. 행은 분기, 열은 매장.
+`sales` 에서 **분기별(quarter) · 매장별** 매출(`매출액`) 합계를 pivot_table 로 만들어 `q7` 에 저장하고 출력하시오. 행은 분기, 열은 매장.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -948,8 +1010,8 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-sales["quarter"] = sales["date"].dt.quarter
-q7 = pd.pivot_table(sales, index="quarter", columns="store", values="amount", aggfunc="sum")
+sales["분기"] = sales["날짜"].dt.quarter
+q7 = pd.pivot_table(sales, index="분기", columns="매장", values="매출액", aggfunc="sum")
 q7
 ```
 
@@ -957,7 +1019,7 @@ q7
 
 ### 문제 8. 모델링 준비 (5회차 예습)
 
-`df` 에서 `customer_id`, `postal_code`, `join_date` 컬럼을 삭제하고, `churn` 을 `y`, 나머지를 `X` 로 분리하시오. `X.shape`, `y.shape` 를 출력하시오.
+`df` 에서 `고객ID`, `우편번호`, `가입일` 컬럼을 삭제하고, `이탈여부` 를 `y`, 나머지를 `X` 로 분리하시오. `X.shape`, `y.shape` 를 출력하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -968,9 +1030,9 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-df_model = df.drop(columns=["customer_id", "postal_code", "join_date"])
-y = df_model["churn"]
-X = df_model.drop(columns=["churn"])
+df_model = df.drop(columns=["고객ID", "우편번호", "가입일"])
+y = df_model["이탈여부"]
+X = df_model.drop(columns=["이탈여부"])
 print(X.shape, y.shape)
 ```
 
@@ -990,7 +1052,7 @@ md(r"""
 | 속성 vs 메서드 | `shape`, `columns`, `dtypes` 는 괄호 없음. `head()`, `info()`, `describe()` 는 괄호 있음 |
 | 컬럼 선택 | `df["c"]` 는 Series, `df[["c"]]` 는 DataFrame |
 | `loc` / `iloc` | 이름 / 위치. `loc` 슬라이스는 끝 포함 |
-| 조건 필터링 | `&`, `\|`, `~` + 괄호. `isin`, `between`, `str.contains`, `isna` |
+| 조건 필터링 | `&`, `\|`, `~` + 괄호. `isin`, `between`, `str.contains`, `isna`. `query` 의 한글 컬럼은 백틱 |
 | 파생 변수 | `np.where`(2갈래), `np.select`(여러 갈래), `map`(사전), `apply`(함수) |
 | 수정 결과 대입 | `drop`, `rename`, `sort_values` 는 새 객체 반환 → `df = df.xxx(...)` |
 | `groupby` | `groupby(키)[값].통계`, `agg`, named aggregation, `reset_index` |
@@ -1011,15 +1073,15 @@ md(r"""
 
 - 한 변수의 분포 보기: 히스토그램, 박스플롯, `countplot`
 - 두 변수의 관계 보기: 산점도, 상관계수(`corr`), `heatmap`
-- 타깃(`churn`)과 각 변수의 관계를 그림으로 확인하고 가설 세우기
+- 타깃(`이탈여부`)과 각 변수의 관계를 그림으로 확인하고 가설 세우기
 - `matplotlib` 와 `seaborn` 의 역할 분담, 시험에 나오는 그래프 유형
 """)
 
 nb = nbf.v4.new_notebook()
 nb["cells"] = cells
 nb["metadata"] = {
-  "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-  "language_info": {"name": "python", "version": "3.11"},
+  "kernelspec": {"display_name": "Python 3", "language": "python", "이름": "python3"},
+  "language_info": {"이름": "python", "version": "3.11"},
 }
 nbf.write(nb, OUT)
 print("written:", OUT, "cells:", len(cells))

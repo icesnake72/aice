@@ -258,21 +258,21 @@ code(r"""
 # 같은 고객 데이터에서 "회귀 문제"와 "분류 문제"를 정의해 본다.
 # y 의 형태만 다를 뿐, X(입력)는 동일할 수 있다.
 customers = pd.DataFrame({
-  "age": [25, 34, 45, 52, 23, 38],
-  "tenure_months": [3, 24, 60, 84, 1, 36],
-  "monthly_fee": [35000, 55000, 89000, 79000, 29000, 65000],   # 회귀 타깃 후보
-  "churn": ["Yes", "No", "No", "No", "Yes", "No"],              # 분류 타깃 후보
+  "나이": [25, 34, 45, 52, 23, 38],
+  "가입개월수": [3, 24, 60, 84, 1, 36],
+  "월요금": [35000, 55000, 89000, 79000, 29000, 65000],   # 회귀 타깃 후보
+  "이탈여부": ["Yes", "No", "No", "No", "Yes", "No"],              # 분류 타깃 후보
 })
 customers
 """)
 code(r"""
 # 회귀 문제: 나이·가입기간으로 월 요금(연속값)을 예측
-X = customers[["age", "tenure_months"]]
-y_reg = customers["monthly_fee"]
+X = customers[["나이", "가입개월수"]]
+y_reg = customers["월요금"]
 print("회귀 타깃 dtype :", y_reg.dtype, "-> 숫자이므로 회귀")
 
 # 분류 문제: 나이·가입기간으로 이탈 여부(범주)를 예측
-y_clf = customers["churn"]
+y_clf = customers["이탈여부"]
 print("분류 타깃 dtype :", y_clf.dtype, "-> 문자열(범주)이므로 분류")
 print("분류 타깃 종류  :", y_clf.unique(), "-> 클래스가 2개이므로 이진 분류")
 """)
@@ -313,20 +313,22 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score
 
 # ① 데이터 획득
+# 내장 데이터셋은 컬럼명이 영어로 고정되어 있다. 의미를 알기 쉽게 한글로 바꿔서 진행한다.
+#   sepal length/width (cm) = 꽃받침 길이/너비, petal length/width (cm) = 꽃잎 길이/너비
 iris = load_iris()
-df = pd.DataFrame(iris.data, columns=iris.feature_names)
-df["species"] = iris.target
+df = pd.DataFrame(iris.data, columns=["꽃받침길이", "꽃받침너비", "꽃잎길이", "꽃잎너비"])
+df["품종"] = iris.target          # 0=setosa, 1=versicolor, 2=virginica
 
 # ② 구조 확인
 print("데이터 크기:", df.shape)
 display(df.head(3))
 
 # ③ 탐색 (간단히 클래스 분포만)
-print("품종별 개수:\n", df["species"].value_counts().to_dict())
+print("품종별 개수:\n", df["품종"].value_counts().to_dict())
 
 # ④ 전처리: 입력 X 와 정답 y 분리, 학습용/평가용 분할
-X = df.drop("species", axis=1)
-y = df["species"]
+X = df.drop("품종", axis=1)
+y = df["품종"]
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # ⑤ 모델링: 학습
@@ -386,24 +388,31 @@ n = 300
 regions = ["서울", "경기", "부산", "대구", "기타"]
 plans = ["5G", "LTE", "3G"]
 
+# 데이터 사용량: 일반 사용자(90%)는 평균 12GB·표준편차 4GB 의 종 모양(정규분포)으로,
+#               헤비 유저(10%)는 30~70GB 사이에서 고르게(균등분포) 만든다.
+#               -> 대부분은 10GB 안팎이고 소수만 큰 값을 가지는, 오른쪽 꼬리가 긴 분포가 된다.
+is_heavy = rng.random(n) < 0.10                                    # 행마다 10% 확률로 헤비 유저
+usage = np.where(is_heavy, rng.uniform(30, 70, size=n), rng.normal(12, 4, size=n))
+usage = np.clip(usage, 0.5, None)                                  # 음수 방지: 최소 0.5GB
+
 customers = pd.DataFrame({
-  "customer_id": [f"C{i:04d}" for i in range(1, n + 1)],
-  "gender": rng.choice(["M", "F"], size=n),
-  "age": rng.integers(19, 70, size=n).astype(float),
-  "region": rng.choice(regions, size=n, p=[0.35, 0.3, 0.15, 0.1, 0.1]),
-  "postal_code": [f"{z:05d}" for z in rng.integers(1000, 63999, size=n)],
-  "plan": rng.choice(plans, size=n, p=[0.5, 0.4, 0.1]),
-  "monthly_fee": rng.choice([29000, 35000, 45000, 55000, 65000, 79000, 89000], size=n).astype(float),
-  "data_usage_gb": np.round(rng.gamma(2.0, 8.0, size=n), 1),
-  "join_date": pd.to_datetime("2019-01-01") + pd.to_timedelta(rng.integers(0, 2000, size=n), unit="D"),
+  "고객ID": [f"C{i:04d}" for i in range(1, n + 1)],
+  "성별": rng.choice(["M", "F"], size=n),
+  "나이": rng.integers(19, 70, size=n).astype(float),
+  "지역": rng.choice(regions, size=n, p=[0.35, 0.3, 0.15, 0.1, 0.1]),
+  "우편번호": [f"{z:05d}" for z in rng.integers(1000, 63999, size=n)],
+  "요금제": rng.choice(plans, size=n, p=[0.5, 0.4, 0.1]),
+  "월요금": rng.choice([29000, 35000, 45000, 55000, 65000, 79000, 89000], size=n).astype(float),
+  "데이터사용량": np.round(usage, 1),
+  "가입일": pd.to_datetime("2019-01-01") + pd.to_timedelta(rng.integers(0, 2000, size=n), unit="D"),
 })
-customers["tenure_months"] = ((pd.to_datetime("2024-12-31") - customers["join_date"]).dt.days // 30)
-churn_prob = 0.15 + 0.25 * (customers["tenure_months"] < 12) + 0.1 * (customers["plan"] == "3G")
-customers["churn"] = np.where(rng.random(n) < churn_prob, "Yes", "No")
+customers["가입개월수"] = ((pd.to_datetime("2024-12-31") - customers["가입일"]).dt.days // 30)
+churn_prob = 0.15 + 0.25 * (customers["가입개월수"] < 12) + 0.1 * (customers["요금제"] == "3G")
+customers["이탈여부"] = np.where(rng.random(n) < churn_prob, "Yes", "No")
 
 # 결측치를 일부러 심는다 (4회차 전처리에서 다룰 예정)
-customers.loc[rng.choice(n, 12, replace=False), "age"] = np.nan
-customers.loc[rng.choice(n, 8, replace=False), "data_usage_gb"] = np.nan
+customers.loc[rng.choice(n, 12, replace=False), "나이"] = np.nan
+customers.loc[rng.choice(n, 8, replace=False), "데이터사용량"] = np.nan
 
 print("생성된 데이터 크기:", customers.shape)
 customers.head()
@@ -424,9 +433,9 @@ with open(f"{DATA_DIR}/customers_raw.csv", "w", encoding="utf-8") as f:
 
 # Excel: 시트 2개 (customers, plans)
 plan_info = pd.DataFrame({
-  "plan": plans,
-  "speed_mbps": [1000, 150, 10],
-  "launch_year": [2019, 2011, 2006],
+  "요금제": plans,
+  "속도Mbps": [1000, 150, 10],
+  "출시연도": [2019, 2011, 2006],
 })
 with pd.ExcelWriter(f"{DATA_DIR}/customers.xlsx") as writer:
   customers.to_excel(writer, sheet_name="customers", index=False)
@@ -435,11 +444,11 @@ with pd.ExcelWriter(f"{DATA_DIR}/customers.xlsx") as writer:
 # 날짜가 있는 매출 데이터
 dates = pd.date_range("2024-01-01", "2024-12-31", freq="D")
 sales = pd.DataFrame({
-  "date": np.repeat(dates, 3),
-  "store": np.tile(["강남점", "홍대점", "부산점"], len(dates)),
-  "qty": rng.poisson(20, size=len(dates) * 3),
+  "날짜": np.repeat(dates, 3),
+  "매장": np.tile(["강남점", "홍대점", "부산점"], len(dates)),
+  "판매량": rng.poisson(20, size=len(dates) * 3),
 })
-sales["amount"] = sales["qty"] * rng.choice([12000, 15000, 18000], size=len(sales))
+sales["매출액"] = sales["판매량"] * rng.choice([12000, 15000, 18000], size=len(sales))
 sales.to_csv(f"{DATA_DIR}/sales_2024.csv", index=False)
 
 print("생성된 파일 목록:")
@@ -484,20 +493,20 @@ df.head()
 """)
 code(r"""
 # 읽은 직후에는 반드시 자료형을 확인하는 습관을 들인다.
-# postal_code 가 숫자(int64)로 읽혀 앞자리 0 이 사라졌고, join_date 는 문자열(object)이다.
+# 우편번호 가 숫자(int64)로 읽혀 앞자리 0 이 사라졌고, 가입일 는 문자열(object)이다.
 df.dtypes
 """)
 code(r"""
 # [dtype / parse_dates] 자료형을 읽는 시점에 바로잡는다.
 df = pd.read_csv(
   f"{DATA_DIR}/customers.csv",
-  dtype={"postal_code": str},     # 앞자리 0 보존
-  parse_dates=["join_date"],      # 문자열 -> datetime64
+  dtype={"우편번호": str},     # 앞자리 0 보존
+  parse_dates=["가입일"],      # 문자열 -> datetime64
 )
 
 print(df.dtypes, "\n")
-print("postal_code 예시:", df["postal_code"].head(3).tolist())
-print("join_date 연도  :", df["join_date"].dt.year.head(3).tolist())   # 날짜형이라 .dt 사용 가능
+print("우편번호 예시:", df["우편번호"].head(3).tolist())
+print("가입일 연도  :", df["가입일"].dt.year.head(3).tolist())   # 날짜형이라 .dt 사용 가능
 """)
 code(r"""
 # [sep] 구분자가 쉼표가 아니면 컬럼이 1개로 뭉쳐 읽힌다. -> sep 지정
@@ -517,15 +526,15 @@ except UnicodeDecodeError as e:
   print("UnicodeDecodeError 발생:", str(e)[:60], "...")
 
 df_kr = pd.read_csv(f"{DATA_DIR}/customers_cp949.csv", encoding="cp949")
-print("\nencoding='cp949' 로 성공. region 값:", df_kr["region"].unique())
+print("\nencoding='cp949' 로 성공. 지역 값:", df_kr["지역"].unique())
 """)
 code(r"""
 # [header / names] 컬럼명 행이 없는 파일
 no_header_wrong = pd.read_csv(f"{DATA_DIR}/customers_noheader.csv")
 print("header 미지정 -> 첫 데이터 행이 컬럼명이 되어 버림:", no_header_wrong.columns.tolist()[:3])
 
-col_names = ["customer_id", "gender", "age", "region", "postal_code", "plan",
-             "monthly_fee", "data_usage_gb", "join_date", "tenure_months", "churn"]
+col_names = ["고객ID", "성별", "나이", "지역", "우편번호", "요금제",
+             "월요금", "데이터사용량", "가입일", "가입개월수", "이탈여부"]
 no_header = pd.read_csv(f"{DATA_DIR}/customers_noheader.csv", header=None, names=col_names)
 print("header=None, names=... ->", no_header.columns.tolist()[:3])
 no_header.head(3)
@@ -534,8 +543,8 @@ code(r"""
 # [index_col / usecols / nrows] 필요한 부분만 골라 읽기
 df_part = pd.read_csv(
   f"{DATA_DIR}/customers.csv",
-  index_col="customer_id",                        # customer_id 를 행 인덱스로
-  usecols=["customer_id", "age", "plan", "churn"],  # 4개 컬럼만
+  index_col="고객ID",                        # 고객ID 를 행 인덱스로
+  usecols=["고객ID", "나이", "요금제", "이탈여부"],  # 4개 컬럼만
   nrows=5,                                        # 앞 5행만
 )
 df_part
@@ -554,14 +563,14 @@ df_raw = pd.read_csv(
   skiprows=2,          # 앞 2줄 무시 (comment="#" 으로도 가능)
   na_values=["-"],     # "-" 를 NaN 으로
 )
-print("age 결측치 개수:", df_raw["age"].isna().sum())
-print("age dtype      :", df_raw["age"].dtype, "  <- na_values 를 안 주면 '-' 때문에 object 가 된다")
+print("나이 결측치 개수:", df_raw["나이"].isna().sum())
+print("나이 dtype      :", df_raw["나이"].dtype, "  <- na_values 를 안 주면 '-' 때문에 object 가 된다")
 """)
 code(r"""
 # 비교: na_values 를 안 주면 age 가 문자열(object) 컬럼이 되어 평균 계산이 불가능하다.
 df_bad = pd.read_csv(f"{DATA_DIR}/customers_raw.csv", skiprows=2)
-print("na_values 미지정 -> age dtype:", df_bad["age"].dtype)
-print("고유값 예시:", df_bad["age"].unique()[:6])
+print("na_values 미지정 -> 나이 dtype:", df_bad["나이"].dtype)
+print("고유값 예시:", df_bad["나이"].unique()[:6])
 """)
 md(r"""
 > **💡 도움말 활용**: 파라미터가 기억나지 않으면 셀에서 `pd.read_csv?` 를 실행하거나 `pd.read_csv(` 입력 후 `Shift+Tab` 을 누르세요. 시험장에서도 사용할 수 있습니다.
@@ -615,8 +624,8 @@ df_json.head(3)
 code(r"""
 # 중첩(nested) JSON 은 json.normalize 로 펼친다. (API 응답 처리에 자주 필요)
 nested = [
-  {"id": 1, "name": "김철수", "contact": {"email": "kim@example.com", "phone": "010-1111-2222"}},
-  {"id": 2, "name": "이영희", "contact": {"email": "lee@example.com", "phone": "010-3333-4444"}},
+  {"id": 1, "이름": "김철수", "연락처": {"이메일": "kim@example.com", "전화번호": "010-1111-2222"}},
+  {"id": 2, "이름": "이영희", "연락처": {"이메일": "lee@example.com", "전화번호": "010-3333-4444"}},
 ]
 pd.json_normalize(nested)
 """)
@@ -626,6 +635,8 @@ md(r"""
 `read_csv` 의 첫 인자에 **http(s) 주소** 를 주면 다운로드 없이 바로 읽습니다. 인터넷이 없는 환경(시험장)에서는 동작하지 않으므로 `try / except` 로 감쌌습니다.
 """)
 code(r"""
+# 외부 공개 데이터는 컬럼명이 영어인 경우가 대부분이다. 의미는 주석으로 적어 둔다.
+#   total_bill=총 계산액($), tip=팁($), sex=성별, smoker=흡연 여부, day=요일, time=식사 시간대, size=인원수
 url = "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/tips.csv"
 try:
   tips = pd.read_csv(url)
@@ -649,14 +660,28 @@ print("특징 이름 :", iris.feature_names)
 print("정답 이름 :", iris.target_names)
 """)
 code(r"""
-# 방법 1: 직접 조립 (가장 범용적)
+# 방법 1: 직접 조립 (가장 범용적). 컬럼명은 영어(feature_names)로 만들어진다.
 iris_df = pd.DataFrame(iris.data, columns=iris.feature_names)
 iris_df["target"] = iris.target
 iris_df["species"] = iris_df["target"].map(dict(enumerate(iris.target_names)))
 iris_df.head()
 """)
 code(r"""
-# 방법 2: as_frame=True (scikit-learn 0.23+) -> .frame 속성에 완성된 DataFrame
+# 영어 컬럼명을 한글로 바꾸기: rename 에 {영어: 한글} 사전을 준다 (2회차에서 자세히)
+#   sepal = 꽃받침, petal = 꽃잎, target = 품종 번호, species = 품종 이름
+iris_kr = iris_df.rename(columns={
+  "sepal length (cm)": "꽃받침길이",
+  "sepal width (cm)": "꽃받침너비",
+  "petal length (cm)": "꽃잎길이",
+  "petal width (cm)": "꽃잎너비",
+  "target": "품종번호",
+  "species": "품종",
+})
+iris_kr.head(3)
+""")
+code(r"""
+# 방법 2: as_frame=True (scikit-learn 0.23+) -> .frame 속성에 완성된 DataFrame (컬럼명은 영어 고정)
+#   alcohol=알코올, malic_acid=말산, ash=회분, ... , proline=프롤린, target=와인 품종(0/1/2)
 wine_df = load_wine(as_frame=True).frame
 print(wine_df.shape)
 wine_df.head(3)
@@ -665,6 +690,8 @@ code(r"""
 # seaborn 내장 데이터셋 (인터넷에서 다운로드하므로 오프라인이면 실패할 수 있음)
 import seaborn as sns
 
+#   survived=생존(1)/사망(0), pclass=객실 등급, sex=성별, age=나이, sibsp=동반 형제·배우자 수,
+#   parch=동반 부모·자녀 수, fare=운임, embarked=탑승 항구, class/who/deck/alone=파생 정보
 try:
   titanic = sns.load_dataset("titanic")
   print("titanic:", titanic.shape)
@@ -688,16 +715,16 @@ md(r"""
 code(r"""
 # 컬럼 단위 dict (열 이름 -> 값 리스트)
 df1 = pd.DataFrame({
-  "name": ["김철수", "이영희", "박민수"],
-  "score": [85, 92, 78],
-  "passed": [True, True, False],
+  "이름": ["김철수", "이영희", "박민수"],
+  "점수": [85, 92, 78],
+  "합격여부": [True, True, False],
 })
 print(df1, "\n")
 
 # 행 단위 list of dict
 df2 = pd.DataFrame([
-  {"name": "김철수", "score": 85},
-  {"name": "이영희", "score": 92},
+  {"이름": "김철수", "점수": 85},
+  {"이름": "이영희", "점수": 92},
 ])
 print(df2, "\n")
 
@@ -709,8 +736,8 @@ print(df3)
 code(r"""
 # 날짜 인덱스 만들기: pd.date_range (시계열 데이터 생성/검증에 자주 사용)
 ts = pd.DataFrame({
-  "date": pd.date_range("2024-01-01", periods=7, freq="D"),
-  "value": np.round(np.random.default_rng(0).normal(100, 10, 7), 1),
+  "날짜": pd.date_range("2024-01-01", periods=7, freq="D"),
+  "값": np.round(np.random.default_rng(0).normal(100, 10, 7), 1),
 })
 ts
 """)
@@ -803,12 +830,12 @@ df_auto.head(2)
 code(r"""
 # 숫자에 쉼표(천 단위)가 섞인 파일: thousands 옵션
 with open(f"{DATA_DIR}/tmp_thousands.csv", "w", encoding="utf-8") as f:
-  f.write('item,price\n노트북,"1,250,000"\n마우스,"35,000"\n')
+  f.write('품목,가격\n노트북,"1,250,000"\n마우스,"35,000"\n')
 
 bad = pd.read_csv(f"{DATA_DIR}/tmp_thousands.csv")
 good = pd.read_csv(f"{DATA_DIR}/tmp_thousands.csv", thousands=",")
-print("thousands 미지정 dtype:", bad["price"].dtype)
-print("thousands=',' dtype  :", good["price"].dtype, "| 합계:", good["price"].sum())
+print("thousands 미지정 dtype:", bad["가격"].dtype)
+print("thousands=',' dtype  :", good["가격"].dtype, "| 합계:", good["가격"].sum())
 os.remove(f"{DATA_DIR}/tmp_thousands.csv")
 """)
 
@@ -842,7 +869,7 @@ AICE 시험과 같은 형식으로 **변수명을 지정** 합니다.
 
 `data/customers_semicolon.txt` 파일을 읽어 `q1` 변수에 저장하고, 행과 열의 개수를 출력하시오.
 
-> **조건**: 구분자는 `;` 이다. `postal_code` 컬럼은 문자열로 읽는다.
+> **조건**: 구분자는 `;` 이다. `우편번호` 컬럼은 문자열로 읽는다.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -853,7 +880,7 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-q1 = pd.read_csv(f"{DATA_DIR}/customers_semicolon.txt", sep=";", dtype={"postal_code": str})
+q1 = pd.read_csv(f"{DATA_DIR}/customers_semicolon.txt", sep=";", dtype={"우편번호": str})
 print(q1.shape)
 ```
 
@@ -861,7 +888,7 @@ print(q1.shape)
 
 ### 문제 2. 일부 컬럼만 읽기
 
-`data/customers.csv` 에서 `customer_id`, `plan`, `monthly_fee`, `churn` 네 컬럼만 읽고, `customer_id` 를 인덱스로 설정하여 `q2` 에 저장하시오. 상위 5개 행을 출력하시오.
+`data/customers.csv` 에서 `고객ID`, `요금제`, `월요금`, `이탈여부` 네 컬럼만 읽고, `고객ID` 를 인덱스로 설정하여 `q2` 에 저장하시오. 상위 5개 행을 출력하시오.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -874,8 +901,8 @@ md(r"""
 ```python
 q2 = pd.read_csv(
   f"{DATA_DIR}/customers.csv",
-  usecols=["customer_id", "plan", "monthly_fee", "churn"],
-  index_col="customer_id",
+  usecols=["고객ID", "요금제", "월요금", "이탈여부"],
+  index_col="고객ID",
 )
 q2.head()
 ```
@@ -905,7 +932,7 @@ q3
 
 scikit-learn 의 `load_diabetes()` 를 불러와 특징 컬럼과 `target` 컬럼을 가진 DataFrame `q4` 를 만드시오. `q4.shape` 와 `q4.head(3)` 를 출력하시오.
 
-> **힌트**: `load_diabetes()` 의 `.data`, `.feature_names`, `.target` 을 사용한다.
+> **힌트**: `load_diabetes()` 의 `.data`, `.feature_names`, `.target` 을 사용한다. 컬럼명은 영어(`age`, `sex`, `bmi`, `bp`, `s1`~`s6`)로 고정되어 있다.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -929,10 +956,10 @@ q4.head(3)
 
 ### 문제 5. 날짜 파싱 후 저장
 
-`data/sales_2024.csv` 를 `date` 컬럼을 날짜형으로 읽어 `q5` 에 저장하시오.  
-그리고 `date` 가 2024년 3월인 행만 골라 `data/sales_2024_03.csv` 로 **인덱스 없이** 저장한 뒤, 저장한 파일을 다시 읽어 행 수를 출력하시오.
+`data/sales_2024.csv` 를 `날짜` 컬럼을 날짜형으로 읽어 `q5` 에 저장하시오.  
+그리고 `날짜` 가 2024년 3월인 행만 골라 `data/sales_2024_03.csv` 로 **인덱스 없이** 저장한 뒤, 저장한 파일을 다시 읽어 행 수를 출력하시오.
 
-> **힌트**: 날짜형 컬럼은 `q5["date"].dt.month` 로 월을 꺼낼 수 있다. 조건 필터링 `df[조건]` 은 2회차에서 자세히 다루지만, 정답 코드를 보고 따라 해 보자.
+> **힌트**: 날짜형 컬럼은 `q5["날짜"].dt.month` 로 월을 꺼낼 수 있다. 조건 필터링 `df[조건]` 은 2회차에서 자세히 다루지만, 정답 코드를 보고 따라 해 보자.
 """)
 code(r"""
 # 여기에 코드를 작성하세요
@@ -943,8 +970,8 @@ md(r"""
 <summary>정답 보기</summary>
 
 ```python
-q5 = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["date"])
-march = q5[q5["date"].dt.month == 3]
+q5 = pd.read_csv(f"{DATA_DIR}/sales_2024.csv", parse_dates=["날짜"])
+march = q5[q5["날짜"].dt.month == 3]
 march.to_csv(f"{DATA_DIR}/sales_2024_03.csv", index=False)
 
 check = pd.read_csv(f"{DATA_DIR}/sales_2024_03.csv")
@@ -1025,8 +1052,8 @@ md(r"""
 nb = nbf.v4.new_notebook()
 nb["cells"] = cells
 nb["metadata"] = {
-  "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-  "language_info": {"name": "python", "version": "3.11"},
+  "kernelspec": {"display_name": "Python 3", "language": "python", "이름": "python3"},
+  "language_info": {"이름": "python", "version": "3.11"},
 }
 OUT.parent.mkdir(parents=True, exist_ok=True)
 nbf.write(nb, OUT)

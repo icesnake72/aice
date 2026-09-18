@@ -668,14 +668,77 @@ def make_optimizer(lr: float):
     return keras.optimizers.Adam(lr)
 
 
-def compile_model(model, lr: float):
-  """세 모델 공통 컴파일 (같은 optimizer·손실·지표로 맞춰야 비교가 성립한다).
+def compile_model(model, lr: float, optimizer=None):
+  """공통 컴파일 (같은 손실·지표로 맞춰야 비교가 성립한다).
 
+  Args:
+    lr: optimizer 를 따로 주지 않을 때 쓰는 학습률
+    optimizer: 모델별 optimizer. None 이면 공통 Adam 이다. VideoTransformer 만
+      논문 레시피(AdamW + weight decay)를 쓰려고 이 자리를 쓴다 — 손실·지표는
+      그대로라 모델 간 비교는 계속 성립한다.
   Returns:
     컴파일된 model (체이닝용으로 그대로 반환)
   """
-  model.compile(optimizer=make_optimizer(lr), loss=ssim_mae_loss, metrics=["mae"])
+  model.compile(optimizer=optimizer or make_optimizer(lr), loss=ssim_mae_loss, metrics=["mae"])
   return model
+
+
+def make_warmup_cosine_callback(steps_per_epoch: int, epochs: int,
+                                warmup_epochs: float = 1.0, min_lr_ratio: float = 0.0):
+  """warmup 후 cosine 으로 감쇠하는 LR 콜백 (Transformer 계열용).
+
+  Transformer 는 warmup 없이 큰 LR 로 시작하면 초기에 attention 이 무너진다.
+  `ReduceLROnPlateau` 와 같이 걸면 두 콜백이 같은 `optimizer.learning_rate` 를 서로
+  덮으므로 `train_model` 은 둘 중 하나만 건다.
+
+  기준 LR 은 `on_train_begin` 에서 optimizer 의 현재 값을 읽어 정점(peak)으로 삼는다.
+  Args:
+    steps_per_epoch: epoch 당 step 수
+    epochs: 최대 epoch 수 (cosine 주기의 분모)
+    warmup_epochs: 0 -> peak 까지 선형으로 올리는 구간 (epoch 단위, 소수 가능)
+    min_lr_ratio: cosine 이 내려갈 하한 (peak 대비 비율)
+  Returns:
+    keras.callbacks.Callback 인스턴스
+  """
+  import math
+
+  from tensorflow import keras
+
+  class WarmupCosine(keras.callbacks.Callback):
+    """step 단위로 optimizer.learning_rate 를 직접 갱신한다."""
+
+    def __init__(self) -> None:
+      """총 step 수와 warmup step 수를 미리 계산한다."""
+      super().__init__()
+      self.total = max(1, steps_per_epoch * epochs)
+      self.warmup = max(1, int(steps_per_epoch * warmup_epochs))
+      self.peak = 0.0
+      self.step = 0
+
+    def on_train_begin(self, logs=None) -> None:
+      """optimizer 에 설정된 초기 LR 을 정점으로 기억한다."""
+      del logs
+      self.peak = float(np.asarray(self.model.optimizer.learning_rate))
+
+    def on_train_batch_begin(self, batch, logs=None) -> None:
+      """warmup 구간은 선형, 이후는 cosine."""
+      del batch, logs
+      if self.step < self.warmup:
+        lr = self.peak * (self.step + 1) / self.warmup
+      else:
+        progress = (self.step - self.warmup) / max(1, self.total - self.warmup)
+        cosine = 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+        lr = self.peak * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine)
+      self.model.optimizer.learning_rate = lr
+      self.step += 1
+
+    def on_epoch_end(self, epoch, logs=None) -> None:
+      """ReduceLROnPlateau 가 채우던 train_log.csv 의 learning_rate 열을 대신 채운다."""
+      del epoch
+      if logs is not None:
+        logs["learning_rate"] = float(np.asarray(self.model.optimizer.learning_rate))
+
+  return WarmupCosine()
 
 
 # --------------------------------------------------------------------------
@@ -694,15 +757,25 @@ def train_model(model, X_train: np.ndarray, Y_train: np.ndarray,
 
   model_dir.mkdir(parents=True, exist_ok=True)
   weights_path = model_dir / WEIGHTS_NAME.format(model=model_name.lower())
+  steps = int(np.ceil(len(X_train) / cfg.batch))
+
+  # LR 콜백은 하나만 건다 — 둘 다 optimizer.learning_rate 를 써서 서로 덮는다.
+  if cfg.extra.get("lr_schedule") == "warmup_cosine":
+    lr_callback = make_warmup_cosine_callback(
+      steps, cfg.epochs, float(cfg.extra.get("warmup_epochs", 1.0)))
+    logger.info("LR 스케줄: warmup %.1f epoch -> cosine (ReduceLROnPlateau 미사용)",
+                float(cfg.extra.get("warmup_epochs", 1.0)))
+  else:
+    lr_callback = keras.callbacks.ReduceLROnPlateau(monitor="val_loss",
+                                                    patience=cfg.lr_patience, factor=0.5)
   callbacks = [
     keras.callbacks.EarlyStopping(monitor="val_loss", patience=cfg.early_stop_patience,
                                   restore_best_weights=True),
-    keras.callbacks.ReduceLROnPlateau(monitor="val_loss", patience=cfg.lr_patience, factor=0.5),
+    lr_callback,
     keras.callbacks.ModelCheckpoint(str(model_dir / CHECKPOINT_NAME), monitor="val_loss",
                                     save_best_only=True, save_weights_only=True),
     keras.callbacks.CSVLogger(str(model_dir / TRAIN_LOG_NAME)),
   ]
-  steps = int(np.ceil(len(X_train) / cfg.batch))
   logger.info("%d샘플 / batch %d = %d step/epoch, 최대 %d epoch", len(X_train), cfg.batch, steps, cfg.epochs)
 
   t0 = time.time()
@@ -1010,10 +1083,17 @@ def run(cfg: Config, build_model_fn: Callable[..., Any], model_name: str) -> dic
 
 
 def main_for_model(build_model_fn: Callable[..., Any], model_name: str,
-                   description: str, argv: list[str] | None = None) -> int:
-  """모델 스크립트 공통 CLI 진입점. 인자 파싱 + logging 설정 + run()."""
+                   description: str, argv: list[str] | None = None,
+                   extra: dict | None = None) -> int:
+  """모델 스크립트 공통 CLI 진입점. 인자 파싱 + logging 설정 + run().
+
+  Args:
+    extra: 모델별 실행 옵션을 cfg.extra 에 합친다 (예: VideoTransformer 의 lr_schedule).
+      CLI 인자로 노출할 만큼 일반적이지 않은, 한 모델에만 해당하는 설정용이다.
+  """
   try:
     cfg = config_from_args(build_arg_parser(description).parse_args(argv))
+    cfg.extra.update(extra or {})
   except ValueError as exc:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
     logger.error("%s", exc)

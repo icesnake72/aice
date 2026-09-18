@@ -18,6 +18,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import videotf_predict_colab as videotf  # noqa: E402  (모듈 상수를 mock.patch 하려면 모듈이 필요하다)
 from videotf_predict_colab import (  # noqa: E402
   DELTA_LAYER_NAME,
   MODEL_NAME,
@@ -189,9 +190,17 @@ class VideoTransformerModelTest(unittest.TestCase):
     Δ 가 zero-init 이라 persistence 계열은 통과하고, `test_fit_one_step` 은
     loss 의 유한성만 본다.
 
-    타깃은 "마지막 프레임 + 고정 공간 패턴" 이라 위치 인코딩을 가진 본체가
-    풀 수 있는 과제다. 40 step (32샘플 / batch 8 x 10 epoch) 이면 충분하다.
+    타깃은 "마지막 프레임 + 고정 패턴" 이라 위치 인코딩을 가진 본체가 풀 수 있는 과제다.
+    40 step (32샘플 / batch 8 x 10 epoch) 이면 충분하다.
+
+    정규화(dropout/stochastic depth)와 논문 학습률(5e-4)은 이 40 step 동안 꺼 둔다.
+    검출 대상은 readout 채널 수라는 **구조** 결함이지 학습 레시피가 아닌데, 기본값
+    (dropout 0.1 / drop path 0.25 / lr 5e-4)으로는 40 step 에서 loss 가 3.8% 밖에
+    안 내려가 8채널과 1채널을 구분하지 못한다 (2026-09-18 실측). 여기서 끄는 값들은
+    추론 때 항등이라 구조 검사에는 영향이 없다.
     """
+    from unittest import mock
+
     from tensorflow import keras
 
     self.assertGreater(READOUT_CH, 1, "readout 입력이 1채널이면 학습이 시작되지 않는다")
@@ -205,7 +214,10 @@ class VideoTransformerModelTest(unittest.TestCase):
       pattern = (0.1 * np.sin(grid_y / 3.0) * np.cos(grid_x / 4.0)).astype(np.float32)
       y = np.clip(x[:, -1] + pattern[None, :, :, None], 0.0, 1.0)
 
-      with warnings.catch_warnings():
+      with warnings.catch_warnings(), \
+           mock.patch.object(videotf, "DROPOUT", 0.0), \
+           mock.patch.object(videotf, "DROP_PATH", 0.0), \
+           mock.patch.object(videotf, "PEAK_LR", 1e-3):
         # 위 시드 때문에 Keras 2 초기화가 변수마다 DeprecationWarning 을 낸다 (Keras 내부).
         warnings.simplefilter("ignore", DeprecationWarning)
         model = build_model(4, 2, 16, 16)

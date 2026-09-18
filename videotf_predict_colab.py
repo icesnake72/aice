@@ -18,6 +18,12 @@ arXiv:2410.04733, 공식 구현 github.com/yyyujintang/PredFormer — README 에
     8x8 패치 토큰의 선형 투영만으로는 픽셀 단위 국소 Δ 를 표현할 수 없어 Δ 가 입력 구조와
     정렬되지 않고 학습이 Δ=0 에 머물렀기 때문이다 (2026-09-04 실측, 계획 0.2 절 5번).
   - dim 128 / depth 4 / head 4 로 작게 잡았다 (공식은 과제별로 훨씬 크다).
+  - 정규화·최적화는 논문 Table 8 의 WeatherBench 설정을 따른다: dropout 0.1, stochastic
+    depth 0.25, AdamW(weight decay 1e-2), warmup 1 epoch 후 cosine, peak LR 5e-4.
+    2026-09-18 실측에서 이것들이 전부 꺼진 채로 20 epoch 을 돌렸더니 epoch 13 에서
+    train_loss 가 val_loss 아래로 내려갔다 (val 구간이 더 쉬운데도 역전 = 과적합).
+    논문도 "작은 데이터셋에서 ViT 를 scratch 학습할 때는 dropout 과 stochastic depth 를
+    함께 쓸 때 최고"라고 못박는다.
 
 Colab 사용법
   1) 로컬에서 데이터 다운로드 (AWS Open Data, 익명 접근)
@@ -58,8 +64,17 @@ PATCH = 8            # 패치 한 변의 픽셀 수. 입력은 이 배수로 zer
 HEADS = 4            # MultiHeadAttention head 수 (DIM 을 나누어야 한다)
 DEPTH = 4            # Transformer 블록 수
 MLP_RATIO = 4        # MLP 은닉 폭 배수
-DROPOUT = 0.0        # attention/MLP dropout. 데이터가 작아 0 으로 둔다
 DIM_PER_FILTER = 8   # DIM = DIM_PER_FILTER * filters (filters=16 -> DIM 128)
+
+# 정규화·최적화 (논문 Table 8 의 WeatherBench 열. 기상 필드 예측이라 우리 과제와 가장 가깝다).
+# 논문 결론: "dropout 과 stochastic depth 는 각각도 정규화 없는 경우보다 낫지만,
+# 둘을 함께 쓸 때 최고의 결과를 준다" — 작은 데이터셋에서 ViT 를 scratch 학습할 때의 이야기다.
+# 우리는 이 셋이 전부 꺼진 채로 20 epoch 을 돌렸고 epoch 13 에서 train_loss < val_loss 로
+# 역전됐다 (val 구간이 더 쉬운데도 역전 = 과적합). 2026-09-18 실측.
+DROPOUT = 0.1        # attention / MLP dropout
+DROP_PATH = 0.25     # stochastic depth 최대 비율. 블록마다 0 -> 이 값까지 선형으로 올린다
+PEAK_LR = 5e-4       # 논문 WeatherBench 학습률. warmup 1 epoch 뒤 cosine 으로 감쇠한다
+WEIGHT_DECAY = 1e-2  # 논문: AdamW weight decay 1e-2
 # Δ readout 이 보는 특징 채널 수. 1채널이면 zero-init delta_readout 이 스칼라 gain 하나가 되어
 # gradient 부호가 배치마다 뒤집히고 본체로 전달되지 않는다 (2026-09-04 실측: 4 epoch loss 평평).
 # ConvLSTM 16 · SimVP 16 · PredRNN-V2 4 채널과 같은 취지로 다채널을 준다.
@@ -249,7 +264,41 @@ class DepthToSpace(keras.layers.Layer):
     return {**super().get_config(), "block_size": self.block_size}
 
 
-def transformer_block(x, steps: int, tokens: int, dim: int, index: int):
+class DropPath(keras.layers.Layer):
+  """샘플 단위 stochastic depth. 학습 때만 잔차 가지를 통째로 확률 rate 로 끈다.
+
+  Dropout 이 원소 하나하나를 끄는 것과 달리 배치의 샘플마다 가지 전체를 끄고,
+  살아남은 샘플은 1/(1-rate) 로 키워 기댓값을 맞춘다. 깊은 residual 스택에서
+  Dropout 보다 강한 정규화가 되고, 추론 때는 항등 함수다.
+  학습 파라미터가 없어 96x96 -> 250x250 가중치 이전에 영향을 주지 않는다.
+  """
+
+  def __init__(self, rate: float, **kwargs) -> None:
+    """rate 는 가지를 끌 확률 (0 이면 항등)."""
+    super().__init__(**kwargs)
+    self.rate = float(rate)
+
+  @tf.autograph.experimental.do_not_convert
+  def call(self, x, training=None):
+    """배치 축만 랜덤인 0/1 마스크를 곱한다 (나머지 축은 1 로 브로드캐스트)."""
+    if not training or self.rate <= 0.0:
+      return x
+    keep = 1.0 - self.rate
+    shape = [tf.shape(x)[0]] + [1] * (len(x.shape) - 1)
+    mask = tf.floor(keep + tf.random.uniform(shape, dtype=x.dtype))
+    return x / keep * mask
+
+  def compute_output_shape(self, input_shape):
+    """마스크 곱이라 shape 이 바뀌지 않는다."""
+    return tuple(input_shape)
+
+  def get_config(self) -> dict:
+    """rate 를 직렬화한다."""
+    return {**super().get_config(), "rate": self.rate}
+
+
+def transformer_block(x, steps: int, tokens: int, dim: int, index: int,
+                      drop_path: float = 0.0):
   """pre-LN factorized space-time 블록 하나 (공간 attention -> 시간 attention -> MLP).
 
   PredFormer 의 BinaryST 배열이다. 한 블록 안에서 공간을 먼저 섞고 시간을 섞으면
@@ -260,6 +309,7 @@ def transformer_block(x, steps: int, tokens: int, dim: int, index: int):
     tokens: 토큰 수 N (static)
     dim: 채널 폭 D
     index: 블록 번호 (레이어 이름에 쓴다, 1부터)
+    drop_path: 이 블록의 stochastic depth 비율 (세 잔차 가지에 모두 건다)
   Returns:
     (B, T, N, D) 텐서
   """
@@ -274,6 +324,7 @@ def transformer_block(x, steps: int, tokens: int, dim: int, index: int):
   y = layers.MultiHeadAttention(HEADS, key_dim, dropout=DROPOUT,
                                 name=f"{name}_attn_s")(y, y)
   y = UnfoldSpace(steps, name=f"{name}_unfold_s")(y)
+  y = DropPath(drop_path, name=f"{name}_dp_s")(y)
   x = layers.Add(name=f"{name}_add_s")([x, y])
 
   # 시간 attention: 같은 위치의 패치를 시간축으로 섞는다 (배치 = B*N)
@@ -282,12 +333,15 @@ def transformer_block(x, steps: int, tokens: int, dim: int, index: int):
   y = layers.MultiHeadAttention(HEADS, key_dim, dropout=DROPOUT,
                                 name=f"{name}_attn_t")(y, y)
   y = UnfoldTime(tokens, name=f"{name}_unfold_t")(y)
+  y = DropPath(drop_path, name=f"{name}_dp_t")(y)
   x = layers.Add(name=f"{name}_add_t")([x, y])
 
   # MLP: 채널 축만 섞는다 (Dense 는 마지막 축에 걸리므로 접을 필요가 없다)
   y = layers.LayerNormalization(name=f"{name}_ln_m")(x)
   y = layers.Dense(dim * MLP_RATIO, activation="gelu", name=f"{name}_mlp1")(y)
+  y = layers.Dropout(DROPOUT, name=f"{name}_mlp_drop")(y)
   y = layers.Dense(dim, name=f"{name}_mlp2")(y)
+  y = DropPath(drop_path, name=f"{name}_dp_m")(y)
   return layers.Add(name=f"{name}_add_m")([x, y])
 
 
@@ -314,8 +368,11 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   x = layers.Reshape((in_frames, tokens, dim), name=TOKEN_LAYER_NAME)(x)
   x = SinusoidalPositionEncoding(grid_h, grid_w, name=POS_LAYER_NAME)(x)
 
+  # stochastic depth 는 블록마다 0 -> DROP_PATH 로 선형 증가시킨다 (timm/ViT 관행).
+  # 앞쪽 블록은 저수준 특징이라 통째로 끄면 손해가 크고, 뒤로 갈수록 여유가 있다.
   for i in range(1, DEPTH + 1):
-    x = transformer_block(x, in_frames, tokens, dim, i)
+    x = transformer_block(x, in_frames, tokens, dim, i,
+                          DROP_PATH * (i - 1) / max(1, DEPTH - 1))
 
   # Readout (hybrid conv head): transformer 경로와 픽셀 해상도 입력 경로를 합친다.
   # transformer 경로 — 마지막 시점 토큰만 읽어 패치를 픽셀로 되돌린다 (다음 1 프레임만 예측한다).
@@ -340,13 +397,25 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
 
   # Δ 는 0 초기화 readout 이라 학습 시작 시 출력 = 입력 마지막 프레임(Persistence)이다.
   delta = delta_readout(head, kernel_size=1, name=DELTA_LAYER_NAME)
-  return compile_model(keras.Model(inputs=inp, outputs=residual_head(inp, delta)), lr)
+  model = keras.Model(inputs=inp, outputs=residual_head(inp, delta))
+  return compile_model(model, lr, optimizer=make_optimizer_adamw())
+
+
+def make_optimizer_adamw():
+  """논문 레시피의 AdamW. 다른 세 모델이 쓰는 공통 Adam 대신 이 모델에만 건다.
+
+  학습률은 인자로 받은 `lr`(공통 기본값 1e-3) 대신 논문 WeatherBench 값 PEAK_LR 을 쓴다.
+  실제 학습에서는 `nc_pipeline.make_warmup_cosine_callback` 이 이 값을 정점으로 삼아
+  warmup -> cosine 으로 매 step 덮어쓴다 (여기 값은 정점 지정이 목적이다).
+  """
+  return keras.optimizers.AdamW(learning_rate=PEAK_LR, weight_decay=WEIGHT_DECAY)
 
 
 def main(argv: list[str] | None = None) -> int:
   """CLI 진입점."""
   return main_for_model(build_model, MODEL_NAME,
-                        "GK2A SW038 next-frame prediction (VideoTransformer)", argv)
+                        "GK2A SW038 next-frame prediction (VideoTransformer)", argv,
+                        extra={"lr_schedule": "warmup_cosine", "warmup_epochs": 1.0})
 
 
 if __name__ == "__main__":

@@ -36,3 +36,4 @@ results/**/*.npz
 results/**/*.h5
 results/**/*.npy
 results/**/*.part
+results/logs/

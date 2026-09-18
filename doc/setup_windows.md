@@ -139,6 +139,34 @@ python3 predrnn_v2_predict_colab.py --epochs 4
 > 백엔드가 `agg` 가 아니면 `plt.show()` 를 시도하므로, 디스플레이 없는 WSL2 세션에서 이 값을 비워 두면
 > 불필요한 경고가 난다.
 
+### 6.1 한 번에 돌리기 — `tools/run_all.sh`
+
+위 네 줄을 순서대로 실행하고 리포트 생성(7절)까지 이어 주는 스크립트다. `MPLBACKEND=Agg` 설정과
+`.venv/bin/python3` 선택도 스크립트 안에서 한다(activate 여부에 의존하지 않는다).
+
+```bash
+./tools/run_all.sh                  # 네 모델, 파서 기본 옵션
+./tools/run_all.sh --epochs 10      # 추가 인자는 네 모델에 그대로 전달된다
+RUN_REPORT=0 ./tools/run_all.sh     # build_report.py 는 건너뛴다
+
+# Windows 쪽에서 파일을 만들어 실행 비트가 없다면 (core.filemode=false)
+chmod +x tools/run_all.sh           # WSL 에서 한 번만
+git add --chmod=+x tools/run_all.sh # 커밋할 때 실행 비트를 같이 기록한다
+```
+
+동작 규칙은 다음과 같다.
+
+| 규칙 | 이유 |
+| --- | --- |
+| 모델을 **순차** 실행한다 | VRAM 8GB 에 네 프로세스를 동시에 올리면 OOM 이다. 프로세스가 끝나면 GPU 메모리는 드라이버가 회수하므로 순차면 서로 간섭이 없다 |
+| 한 모델이 실패해도 나머지를 계속 돌린다 (`set -e` 미사용) | 세 모델만이라도 비교표가 나와야 한다. 모델별 exit code 는 마지막 요약 표에 찍고, 하나라도 실패하면 스크립트 종료 코드는 1 이다 |
+| 로그에 `ResourceExhaustedError` 가 보이면 `--batch 8` 로 1회 자동 재시도 | 8절의 OOM 조치와 같다. `batch` 는 리포트의 조건 일치 검사 대상이 아니라 모델마다 달라져도 "실행 조건 불일치" 배너가 뜨지 않는다 |
+| 실패한 모델이 있으면 리포트 생성을 건너뛴다 | `metrics.json` 이 없는 모델은 리포트에 "결과 없음"으로 박힌다. 그대로 `site/index.html` 을 덮어쓰면 배포본이 조용히 퇴보한다 |
+| 데이터도 캐시도 없으면 시작 전에 멈춘다 | 네 번 연속 실패를 기다릴 이유가 없다 |
+
+실행 로그는 `results/logs/<타임스탬프>_<Model>.log` 에 남는다(`.gitignore` 대상). 첫 모델이 `.nc` 710개를
+파싱해 `results/cache` 에 npz 를 만들고 나머지 세 모델이 그 캐시를 재사용하므로, 데이터 적재 비용은 한 번만 든다.
+
 VRAM 8GB 에서 기본 `--batch 16` 이 OOM 나면 절반으로 줄인다: `--batch 8`. `nc_pipeline.setup_gpu()` 가
 GPU 마다 `set_memory_growth(gpu, True)` 를 이미 걸어 두므로(한꺼번에 VRAM 을 선점하지 않는다) 이 옵션을
 따로 켤 필요는 없다.

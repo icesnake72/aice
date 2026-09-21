@@ -1238,7 +1238,13 @@ def _model_cards(names: Sequence[str], by_model: dict[str, dict[str, Any]]) -> s
     created = fmt_scalar(result.get("created_at"))
     body = [
       head + f'<span class="tag">{esc(created)}</span></div>',
-      _figure(result, "full_frame", f"{_label(name)} 전체 프레임(250×250) 예측", pannable=True),
+      # 추론 방식이 모델마다 다를 수 있으므로 캡션에 밝힌다 (metrics.json full_frame.inference).
+      _figure(result, "full_frame",
+              f"{_label(name)} 전체 프레임(250×250) 예측"
+              + (" — 96×96 타일 9장을 각각 예측해 합성"
+                 if _get(result, "full_frame", "inference") == "tiled"
+                 else " — 250×250 모델로 한 번에 예측"),
+              pannable=True),
       _figure(result, "history", f"{_label(name)} 학습 곡선"),
       _kv_table("실행 환경", result.get("env"), env_keys),
       _kv_table("하이퍼파라미터", result.get("config"), cfg_keys),

@@ -3,10 +3,15 @@
 네 모델은 전부 PATCH(96) 크기로 학습한 뒤, `nc_pipeline.predict_full_frame()` 에서
 250x250 모델을 새로 만들어 `set_weights` 로 가중치를 옮겨 full-frame 을 예측한다.
 Conv 계열은 평행이동 등변성 덕에 이 전이가 자연스럽지만, VideoTransformer 의 공간
-attention 은 토큰 수가 144(12x12) -> 1024(32x32) 로 7.1배 늘어난다. softmax attention 은
-토큰 수에 scale-invariant 가 아니라, 같은 가중치라도 N 이 커지면 분포가 평평해진다.
+attention 은 토큰 수가 144(12x12) -> 1024(32x32) 로 7.1배 늘어나 동작이 달라진다.
 
-이 스크립트는 학습된 가중치를 그대로 쓰고 추론 방식만 바꿔 그 가설을 확인한다.
+정확한 메커니즘은 아직 특정하지 못했다. val 136장 실측(2026-09-18)으로 확인한 것은
+  - attention logit 을 log(N) 비율로 키우는 보정: 오히려 나빠진다 (배수를 키울수록 단조 악화)
+  - 위치 인코딩 좌표를 학습 격자 범위로 보간: 3.3% 개선에 그친다
+  - 학습 때와 같은 96x96 으로 잘라 추론: 20.0% 개선
+앞의 두 가설이 설명하지 못하는 몫이 대부분이라, 파이프라인은 측정된 쪽(타일 추론)을 쓴다.
+
+이 스크립트는 학습된 가중치를 그대로 쓰고 추론 방식만 바꿔 그 차이를 잰다.
 
   direct : 250x250 모델 1회 추론 (현재 파이프라인과 동일)
   tiled  : 96x96 모델로 3x3=9 타일을 각각 추론한 뒤 겹치는 픽셀을 평균 (학습 분포와 동일)
@@ -53,31 +58,6 @@ MODEL_MODULES: dict[str, str] = {
 }
 
 
-def tiled_predict(model, seq: np.ndarray, patch: int, stride: int) -> np.ndarray:
-  """PATCH 크기 모델로 전체 프레임을 타일 추론한다. (1, T, H, W, 1) -> (H, W).
-
-  겹치는 픽셀은 단순 평균한다. patch_grid 가 커버리지 100% 를 보장하므로
-  count 가 0 인 픽셀은 없다.
-  """
-  _, steps, height, width, _ = seq.shape
-  ys, xs = P.patch_grid(height, patch, stride), P.patch_grid(width, patch, stride)
-
-  tiles = np.empty((len(ys) * len(xs), steps, patch, patch, 1), dtype=np.float32)
-  for k, (y, x) in enumerate((y, x) for y in ys for x in xs):
-    tiles[k] = seq[0, :, y:y + patch, x:x + patch, :]
-
-  preds = model.predict(tiles, verbose=0)[..., 0]
-  acc = np.zeros((height, width), dtype=np.float64)
-  cnt = np.zeros((height, width), dtype=np.float64)
-  for k, (y, x) in enumerate((y, x) for y in ys for x in xs):
-    acc[y:y + patch, x:x + patch] += preds[k]
-    cnt[y:y + patch, x:x + patch] += 1.0
-
-  if cnt.min() == 0:
-    raise ValueError(f"커버리지 구멍: patch={patch} stride={stride} 로 {height}x{width} 를 못 덮는다")
-  return (acc / cnt).astype(np.float32)
-
-
 def score(pred: np.ndarray, true: np.ndarray) -> tuple[float, float]:
   """(MAE, SSIM). 파이프라인과 같은 방식으로 잰다."""
   return float(np.mean(np.abs(pred - true))), P.ssim_metric(pred[None], true[None])
@@ -103,7 +83,7 @@ def check_model(name: str, seq: np.ndarray, true_next: np.ndarray,
   model_full.set_weights(model_patch.get_weights())
 
   direct = np.clip(model_full.predict(seq, verbose=0)[0, ..., 0], 0, 1)
-  tiled = np.clip(tiled_predict(model_patch, seq, cfg.patch, cfg.stride), 0, 1)
+  tiled = np.clip(P.predict_tiled(model_patch, seq, cfg.patch, cfg.stride), 0, 1)
 
   d_mae, d_ssim = score(direct, true_next)
   t_mae, t_ssim = score(tiled, true_next)

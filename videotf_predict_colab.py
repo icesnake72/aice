@@ -18,6 +18,12 @@ arXiv:2410.04733, 공식 구현 github.com/yyyujintang/PredFormer — README 에
     8x8 패치 토큰의 선형 투영만으로는 픽셀 단위 국소 Δ 를 표현할 수 없어 Δ 가 입력 구조와
     정렬되지 않고 학습이 Δ=0 에 머물렀기 때문이다 (2026-09-04 실측, 계획 0.2 절 5번).
   - dim 128 / depth 4 / head 4 로 작게 잡았다 (공식은 과제별로 훨씬 크다).
+  - full-frame 추론은 250x250 모델을 새로 만들지 않고 96x96 타일 9장으로 나눠 예측한 뒤
+    겹친 픽셀을 평균한다. Conv 계열은 평행이동 등변성이 있어 전체 크기 모델로 한 번에
+    추론해도 되지만 attention 은 토큰 수(144 -> 1024)가 바뀌면 동작이 달라진다.
+    val 136장 실측(2026-09-18): 직접 추론 MAE 0.005993(Persistence 0.005999 와 동급),
+    타일 추론 0.004793 — 20.0% 개선. 위치 인코딩 좌표 보간은 3.3%, attention logit 을
+    log(N) 로 키우는 보정은 오히려 나빠져서 쓰지 않는다.
   - 정규화·최적화는 논문 Table 8 의 WeatherBench 설정을 따른다: dropout 0.1, stochastic
     depth 0.25, AdamW(weight decay 1e-2), warmup 1 epoch 후 cosine, peak LR 5e-4.
     2026-09-18 실측에서 이것들이 전부 꺼진 채로 20 epoch 을 돌렸더니 epoch 13 에서
@@ -81,6 +87,11 @@ WEIGHT_DECAY = 1e-2  # 논문: AdamW weight decay 1e-2
 READOUT_CH = 8
 HEAD_CH = 16         # hybrid head 의 혼합 conv 폭 (transformer 특징 + 입력 conv 특징을 섞는다)
 
+# 학습 해상도와 그 패치 격자 크기. 추론 해상도가 다르면 위치 인코딩 좌표를 이 범위로
+# 보간한다 (scaled_positions 참고). cfg.patch 를 96 이 아닌 값으로 바꾸면 같이 바꿔야 한다.
+TRAIN_PATCH = 96
+PE_REF_GRID = TRAIN_PATCH // PATCH   # 12 (96 / 8)
+
 DELTA_LAYER_NAME = "delta"    # 잔차 Δ 를 내는 readout Conv2D. 테스트가 이름으로 찾는다
 POS_LAYER_NAME = "posenc"     # 고정 위치 인코딩 레이어. 테스트가 파라미터 0 을 확인한다
 TOKEN_LAYER_NAME = "tokens"   # (B, T, N, DIM) 토큰 레이어. 테스트가 N 을 확인한다
@@ -111,12 +122,32 @@ def sinusoidal_1d(positions: np.ndarray, dim: int) -> np.ndarray:
   return enc.astype(np.float32)
 
 
-def sinusoidal_2d(grid_h: int, grid_w: int, dim: int) -> np.ndarray:
+def scaled_positions(grid: int, ref: int | None) -> np.ndarray:
+  """격자 좌표 (grid,) 를 만든다. ref 를 주면 0..ref-1 범위로 눌러 담는다.
+
+  학습 격자(12x12)와 추론 격자(32x32)가 다를 때 좌표를 그대로 쓰면 12~31 은
+  학습 중 한 번도 나온 적 없는 위치라 위치 인코딩이 분포 밖 입력이 된다.
+  ViT 를 다른 해상도로 옮길 때 위치 임베딩을 보간하는 것과 같은 처리다.
+  Args:
+    grid: 이 모델의 한 축 격자 크기
+    ref: 학습 때의 한 축 격자 크기 (None 이거나 같으면 보간하지 않는다)
+  Returns:
+    (grid,) float64 좌표
+  """
+  if not ref or ref <= 1 or grid <= 1 or grid == ref:
+    return np.arange(grid, dtype=np.float64)
+  return np.linspace(0.0, float(ref - 1), grid, dtype=np.float64)
+
+
+def sinusoidal_2d(grid_h: int, grid_w: int, dim: int,
+                  ref_h: int | None = None, ref_w: int | None = None) -> np.ndarray:
   """2D 공간 위치 인코딩 (grid_h*grid_w, dim). 채널 절반씩 y 축·x 축에 쓴다.
 
   토큰 순서는 행 우선(row-major)이라 `Reshape((T, N, DIM))` 이 패치 격자를 펴는 순서와 같다.
+  ref_h/ref_w 를 주면 좌표를 학습 격자 범위로 보간한다 (`scaled_positions` 참고).
   """
-  ys, xs = np.meshgrid(np.arange(grid_h), np.arange(grid_w), indexing="ij")
+  ys, xs = np.meshgrid(scaled_positions(grid_h, ref_h),
+                       scaled_positions(grid_w, ref_w), indexing="ij")
   half = dim // 2
   return np.concatenate([sinusoidal_1d(ys.reshape(-1), half),
                          sinusoidal_1d(xs.reshape(-1), dim - half)], axis=1)
@@ -130,18 +161,25 @@ class SinusoidalPositionEncoding(keras.layers.Layer):
   가 성립한다. Lambda 는 바이트코드로 저장돼 이식이 어려우므로 Layer 로 감싼다.
   """
 
-  def __init__(self, grid_h: int, grid_w: int, **kwargs) -> None:
-    """grid_h, grid_w 는 패치 격자 크기 (N = grid_h * grid_w)."""
+  def __init__(self, grid_h: int, grid_w: int,
+               ref_h: int | None = None, ref_w: int | None = None, **kwargs) -> None:
+    """grid_h, grid_w 는 패치 격자 크기 (N = grid_h * grid_w).
+
+    ref_h, ref_w 는 학습 격자 크기다. 다르면 좌표를 학습 범위로 보간한다.
+    """
     super().__init__(**kwargs)
     self.grid_h = int(grid_h)
     self.grid_w = int(grid_w)
+    self.ref_h = None if ref_h is None else int(ref_h)
+    self.ref_w = None if ref_w is None else int(ref_w)
 
   def build(self, input_shape) -> None:
     """(1, 1, N, D) 공간 상수와 (1, T, 1, D) 시간 상수를 미리 더해 하나로 만든다."""
     _, steps, tokens, dim = input_shape
     if tokens != self.grid_h * self.grid_w:
       raise ValueError(f"토큰 수 {tokens} != grid {self.grid_h}x{self.grid_w}")
-    space = sinusoidal_2d(self.grid_h, self.grid_w, int(dim))[None, None]
+    space = sinusoidal_2d(self.grid_h, self.grid_w, int(dim),
+                          self.ref_h, self.ref_w)[None, None]
     time = sinusoidal_1d(np.arange(int(steps)), int(dim))[None, :, None]
     self.encoding = tf.constant(space + time, dtype=tf.float32)
     super().build(input_shape)
@@ -158,7 +196,8 @@ class SinusoidalPositionEncoding(keras.layers.Layer):
 
   def get_config(self) -> dict:
     """격자 크기를 직렬화한다."""
-    return {**super().get_config(), "grid_h": self.grid_h, "grid_w": self.grid_w}
+    return {**super().get_config(), "grid_h": self.grid_h, "grid_w": self.grid_w,
+            "ref_h": self.ref_h, "ref_w": self.ref_w}
 
 
 class FoldSpace(keras.layers.Layer):
@@ -366,7 +405,8 @@ def build_model(in_frames: int, filters: int, h: int, w: int,
   x = layers.TimeDistributed(
     layers.Conv2D(dim, PATCH, strides=PATCH, padding="valid"), name="patch_embed")(x)
   x = layers.Reshape((in_frames, tokens, dim), name=TOKEN_LAYER_NAME)(x)
-  x = SinusoidalPositionEncoding(grid_h, grid_w, name=POS_LAYER_NAME)(x)
+  x = SinusoidalPositionEncoding(grid_h, grid_w, PE_REF_GRID, PE_REF_GRID,
+                                 name=POS_LAYER_NAME)(x)
 
   # stochastic depth 는 블록마다 0 -> DROP_PATH 로 선형 증가시킨다 (timm/ViT 관행).
   # 앞쪽 블록은 저수준 특징이라 통째로 끄면 손해가 크고, 뒤로 갈수록 여유가 있다.
@@ -415,7 +455,8 @@ def main(argv: list[str] | None = None) -> int:
   """CLI 진입점."""
   return main_for_model(build_model, MODEL_NAME,
                         "GK2A SW038 next-frame prediction (VideoTransformer)", argv,
-                        extra={"lr_schedule": "warmup_cosine", "warmup_epochs": 1.0})
+                        extra={"lr_schedule": "warmup_cosine", "warmup_epochs": 1.0,
+                               "full_frame_inference": "tiled"})
 
 
 if __name__ == "__main__":

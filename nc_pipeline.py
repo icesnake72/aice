@@ -821,6 +821,41 @@ def evaluate_patches(model, X_val: np.ndarray, Y_val: np.ndarray, batch: int,
   return result
 
 
+def predict_tiled(model, seq: np.ndarray, patch: int, stride: int) -> np.ndarray:
+  """PATCH 크기 모델로 전체 프레임을 타일 추론한다. (1, T, H, W, 1) -> (H, W).
+
+  겹치는 픽셀은 단순 평균한다 (`patch_grid` 가 커버리지 100% 를 보장한다).
+  Conv 계열은 전체 크기 모델을 새로 만들어 한 번에 추론해도 되지만(평행이동 등변성),
+  attention 은 토큰 수가 바뀌면 동작이 달라진다 — 학습 때와 같은 크기로 잘라
+  추론하면 그 불일치가 사라진다. VideoTransformer 만 이 경로를 쓴다.
+  Args:
+    model: 학습에 쓴 PATCH 크기 모델
+    seq: (1, T, H, W, 1) 입력 시퀀스
+    patch: 타일 한 변 크기 (학습 해상도와 같아야 한다)
+    stride: 타일 간격
+  Returns:
+    (H, W) float32 예측 프레임
+  """
+  _, steps, height, width, _ = seq.shape
+  ys, xs = patch_grid(height, patch, stride), patch_grid(width, patch, stride)
+  coords = [(y, x) for y in ys for x in xs]
+
+  tiles = np.empty((len(coords), steps, patch, patch, 1), dtype=np.float32)
+  for k, (y, x) in enumerate(coords):
+    tiles[k] = seq[0, :, y:y + patch, x:x + patch, :]
+
+  preds = model.predict(tiles, verbose=0)[..., 0]
+  acc = np.zeros((height, width), dtype=np.float64)
+  cnt = np.zeros((height, width), dtype=np.float64)
+  for k, (y, x) in enumerate(coords):
+    acc[y:y + patch, x:x + patch] += preds[k]
+    cnt[y:y + patch, x:x + patch] += 1.0
+  if cnt.min() == 0:
+    raise ValueError(f"커버리지 구멍: patch={patch} stride={stride} 로 {height}x{width} 를 못 덮는다")
+  logger.info("타일 추론: %dx%d 타일 %d장 -> %dx%d 재구성", patch, patch, len(coords), height, width)
+  return (acc / cnt).astype(np.float32)
+
+
 def predict_full_frame(model, frames_n: np.ndarray, stamps: list[datetime],
                        segments: list[tuple[int, int]], cfg: Config,
                        build_model_fn: Callable[..., Any], model_dir: Path,
@@ -842,11 +877,14 @@ def predict_full_frame(model, frames_n: np.ndarray, stamps: list[datetime],
   true_next = frames_n[t_pred]
 
   H, W = frames_n.shape[1:]
-  infer_model = build_model_fn(cfg.in_frames, cfg.filters, H, W, cfg.lr)
-  infer_model.set_weights(model.get_weights())
-  logger.info("추론용 모델 재구성: %dx%d, 가중치 %s개 이전 완료", H, W, f"{infer_model.count_params():,}")
-
-  pred_next = np.clip(infer_model.predict(seq, verbose=0)[0, ..., 0], 0, 1)
+  mode = cfg.extra.get("full_frame_inference", "direct")
+  if mode == "tiled":
+    pred_next = np.clip(predict_tiled(model, seq, cfg.patch, cfg.stride), 0, 1)
+  else:
+    infer_model = build_model_fn(cfg.in_frames, cfg.filters, H, W, cfg.lr)
+    infer_model.set_weights(model.get_weights())
+    logger.info("추론용 모델 재구성: %dx%d, 가중치 %s개 이전 완료", H, W, f"{infer_model.count_params():,}")
+    pred_next = np.clip(infer_model.predict(seq, verbose=0)[0, ..., 0], 0, 1)
   inputs_label = f"{stamps[t_pred - cfg.in_frames]:%H:%M}~{stamps[t_pred - 1]:%H:%M}"
   t_pred_label = f"{stamps[t_pred]:%H:%M}"
   logger.info("입력 %s -> 예측 %s UTC", inputs_label, t_pred_label)
@@ -872,6 +910,7 @@ def predict_full_frame(model, frames_n: np.ndarray, stamps: list[datetime],
     "model_ssim": ssim_metric(pred_next[None], true_next[None]),
     "pers_mae": float(np.mean(np.abs(frames_n[t_pred - 1] - true_next))),
     "pers_ssim": ssim_metric(frames_n[t_pred - 1][None], true_next[None]),
+    "inference": mode,
     "t_pred": t_pred_label,
     "inputs": inputs_label,
   }

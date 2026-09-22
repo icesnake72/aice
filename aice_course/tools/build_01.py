@@ -1052,8 +1052,8 @@ md(r"""
 nb = nbf.v4.new_notebook()
 nb["cells"] = cells
 nb["metadata"] = {
-  "kernelspec": {"display_name": "Python 3", "language": "python", "이름": "python3"},
-  "language_info": {"이름": "python", "version": "3.11"},
+  "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
+  "language_info": {"name": "python", "version": "3.11"},
 }
 OUT.parent.mkdir(parents=True, exist_ok=True)
 nbf.write(nb, OUT)

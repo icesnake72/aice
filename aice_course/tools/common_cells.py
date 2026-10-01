@@ -106,3 +106,50 @@ def curriculum(session: int) -> str:
       line = "|".join(cells)
     lines.append(line)
   return "\n".join(lines)
+
+
+# 5회차 이후 공용: 캘리포니아 주택·타이타닉 로드 (영어 컬럼 -> 한글)
+LOAD_DATA_CELL = r'''
+# ===== 실습 데이터: 캘리포니아 주택 가격(회귀), 타이타닉 생존(분류) =====
+# data/ 폴더에 아래 파일이 있어야 합니다. (Colab 이면 왼쪽 파일 탭에서 data/ 폴더를 만들고 업로드)
+#   california_housing_train.csv, california_housing_test.csv, titanic_train.csv, titanic_test.csv
+# 원본 컬럼명은 영어라서 읽은 뒤 한글로 바꿉니다. (영어 = 한글 대응표는 아래 사전 참고)
+
+HOUSING_COLS = {
+  "longitude": "경도",                 # 서쪽일수록 작은 값 (-124 ~ -114)
+  "latitude": "위도",                  # 북쪽일수록 큰 값 (32 ~ 42)
+  "housing_median_age": "주택연식",    # 그 구역 주택 나이의 중앙값 (년)
+  "total_rooms": "총방수",             # 구역 내 전체 방 수
+  "total_bedrooms": "총침실수",        # 구역 내 전체 침실 수
+  "population": "인구",                # 구역 인구
+  "households": "가구수",              # 구역 가구 수
+  "median_income": "소득중앙값",       # 가구 소득 중앙값 (단위: 만 달러)
+  "median_house_value": "주택가격",    # 구역 주택 가격의 중앙값 (달러) <- 회귀 타깃
+}
+TITANIC_COLS = {
+  "PassengerId": "승객ID",
+  "Survived": "생존",                  # 1 = 생존, 0 = 사망 <- 분류 타깃
+  "Pclass": "객실등급",                # 1등석 / 2등석 / 3등석
+  "Name": "이름",
+  "Sex": "성별",                       # male / female
+  "Age": "나이",
+  "SibSp": "동반형제배우자",           # 함께 탄 형제·배우자 수
+  "Parch": "동반부모자녀",             # 함께 탄 부모·자녀 수
+  "Ticket": "티켓번호",
+  "Fare": "운임",                      # 지불한 요금 (파운드)
+  "Cabin": "객실번호",
+  "Embarked": "탑승항구",              # C = Cherbourg, Q = Queenstown, S = Southampton
+}
+
+for name in ["california_housing_train.csv", "california_housing_test.csv", "titanic_train.csv", "titanic_test.csv"]:
+  if not os.path.exists(f"{DATA_DIR}/{name}"):
+    raise FileNotFoundError(f"{DATA_DIR}/{name} 가 없습니다. data 폴더에 실습 파일을 넣어 주세요.")
+
+housing = pd.read_csv(f"{DATA_DIR}/california_housing_train.csv").rename(columns=HOUSING_COLS)
+housing_test = pd.read_csv(f"{DATA_DIR}/california_housing_test.csv").rename(columns=HOUSING_COLS)
+titanic = pd.read_csv(f"{DATA_DIR}/titanic_train.csv").rename(columns=TITANIC_COLS)
+titanic_test = pd.read_csv(f"{DATA_DIR}/titanic_test.csv").rename(columns=TITANIC_COLS)
+
+print("housing:", housing.shape, "| housing_test:", housing_test.shape)
+print("titanic:", titanic.shape, "| titanic_test:", titanic_test.shape)
+'''

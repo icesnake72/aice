@@ -589,6 +589,95 @@ print(f"test 정확도 {accuracy_score(yraw_test, pred):.4f} | F1 {f1_score(yraw
 md(r"""
 > **test 점수는 교차검증 점수보다 낮거나 높을 수 있습니다.** 중요한 것은 하이퍼파라미터를 **test 를 보지 않고** 골랐다는 점입니다. 6회차에서 test 로 깊이를 골랐던 방식은 test 를 엿본 것이라 점수가 낙관적으로 나옵니다.
 
+### 2.4.1 파이프라인 없이 GridSearchCV 쓰기
+
+위에서는 원본 데이터(결측·문자열 포함)를 넣으려고 Pipeline 을 썼습니다. 하지만 **데이터가 이미 전처리되어 있고, 모델이 스케일링을 필요로 하지 않으면** 모델을 GridSearchCV 에 바로 넣어도 됩니다. AICE 시험 문항은 대부분 이 형태입니다. 앞 문항에서 전처리를 끝낸 `X_train` 으로 튜닝합니다.
+
+| 항목 | Pipeline 사용 (2.4) | Pipeline 없이 (2.4.1) |
+|------|------|------|
+| 넣는 데이터 | 원본 (결측·문자열 그대로) | **전처리가 끝난** 데이터 |
+| GridSearchCV 에 넣는 것 | `Pipeline([...])` | **모델 객체 그대로** |
+| 파라미터 이름 | `"model__max_depth"` (단계 이름 + 밑줄 2개) | **`"max_depth"`** (그대로) |
+| `best_estimator_` | 전처리 + 모델이 묶인 Pipeline | 모델 하나 |
+
+#### 예 1: 랜덤포레스트 (스케일링이 필요 없는 모델)
+
+0장에서 전처리를 끝낸 `Xc_train` (결측 대체·성별 0/1·원-핫 완료)을 그대로 씁니다.
+""")
+code(r"""
+param_grid_plain = {                      # 파라미터 이름에 접두사가 없다
+  "max_depth": [4, 6, 8, None],
+  "min_samples_leaf": [1, 3, 5],
+}
+grid_plain = GridSearchCV(
+  RandomForestClassifier(n_estimators=200, random_state=RANDOM_STATE),   # 모델을 그대로 넣는다
+  param_grid_plain, cv=skf, scoring="roc_auc", n_jobs=-1,
+)
+grid_plain.fit(Xc_train, yc_train)
+
+print("최적 조합:", grid_plain.best_params_)
+print("최적 교차검증 AUC:", round(grid_plain.best_score_, 4))
+
+best_plain = grid_plain.best_estimator_     # 최적 조합으로 Xc_train 전체에 다시 학습된 RandomForestClassifier
+proba = best_plain.predict_proba(Xc_test)[:, 1]
+pred = best_plain.predict(Xc_test)
+print(f"test 정확도 {accuracy_score(yc_test, pred):.4f} | F1 {f1_score(yc_test, pred):.4f} | AUC {roc_auc_score(yc_test, proba):.4f}")
+print("best_estimator_ 의 종류:", type(best_plain).__name__)
+""")
+code(r"""
+# 결과 표도 같은 방법으로 본다. 파라미터 열 이름이 param_max_depth 처럼 접두사 없이 나온다
+res_plain = grid_plain.cv_results_
+pd.DataFrame({
+  "max_depth": [str(p["max_depth"]) for p in res_plain["params"]],
+  "min_samples_leaf": [p["min_samples_leaf"] for p in res_plain["params"]],
+  "평균 AUC": res_plain["mean_test_score"].round(4),
+  "순위": res_plain["rank_test_score"],
+}).sort_values("순위").head(5)
+""")
+md(r"""
+#### 예 2: 로지스틱 회귀 (스케일링이 필요한 모델)
+
+스케일링이 필요한 모델은 **먼저 스케일링한 데이터** 를 GridSearchCV 에 넣습니다. 4회차에서 배운 대로 스케일러는 train 에만 fit 합니다.
+
+`C` 는 로지스틱 회귀의 **규제 세기의 역수** 입니다. 작을수록 계수를 강하게 눌러(단순한 모델) 과적합을 줄이고, 클수록 학습 데이터에 더 맞춥니다.
+""")
+code(r"""
+scaler_g = StandardScaler()
+Xc_train_s = scaler_g.fit_transform(Xc_train)      # train 에 fit
+Xc_test_s = scaler_g.transform(Xc_test)            # test 는 transform 만
+
+grid_lr = GridSearchCV(
+  LogisticRegression(max_iter=1000),
+  {"C": [0.01, 0.1, 1, 10]},
+  cv=skf, scoring="roc_auc",
+)
+grid_lr.fit(Xc_train_s, yc_train)
+print("[파이프라인 없이] 최적 C:", grid_lr.best_params_, "| 교차검증 AUC:", round(grid_lr.best_score_, 4),
+      "| test AUC:", round(roc_auc_score(yc_test, grid_lr.predict_proba(Xc_test_s)[:, 1]), 4))
+
+# 같은 튜닝을 Pipeline 으로: 파라미터 이름에 단계 이름(logisticregression__)이 붙는다
+grid_lr_pipe = GridSearchCV(
+  make_pipeline(StandardScaler(), LogisticRegression(max_iter=1000)),
+  {"logisticregression__C": [0.01, 0.1, 1, 10]},
+  cv=skf, scoring="roc_auc",
+)
+grid_lr_pipe.fit(Xc_train, yc_train)               # 스케일링 전 데이터를 넣는다
+print("[Pipeline 사용 ] 최적 C:", grid_lr_pipe.best_params_, "| 교차검증 AUC:", round(grid_lr_pipe.best_score_, 4),
+      "| test AUC:", round(roc_auc_score(yc_test, grid_lr_pipe.predict_proba(Xc_test)[:, 1]), 4))
+""")
+md(r"""
+두 방식의 결과가 거의 같습니다. 차이가 생긴다면 이유는 하나입니다.
+
+- **파이프라인 없이**: 스케일러를 `Xc_train` **전체** 에 먼저 fit 했습니다. 그래서 교차검증의 검증 조각 정보도 스케일러의 평균·표준편차에 조금 섞여 있습니다 (약한 정보 누출). 교차검증 점수가 아주 조금 낙관적으로 나올 수 있습니다.
+- **Pipeline 사용**: 교차검증의 매 조각마다 스케일러를 학습 조각에만 다시 fit 하므로 누출이 없습니다.
+
+> 팁: 어느 쪽을 쓸까
+> - 시험 문제가 `X_train_scaled` 처럼 **스케일링 결과 변수를 먼저 만들게** 하거나 모델만 지정하면 → **파이프라인 없이** (예 1, 예 2 방식). 이 데이터처럼 행이 수백 개 이상이면 누출의 영향은 대개 무시할 만큼 작습니다.
+> - 원본 데이터를 넣고 싶거나, 결측 대체·인코딩까지 교차검증 안에서 정확하게 하고 싶을 때 → **Pipeline** (2.4 방식).
+> - 트리 계열(결정트리·랜덤포레스트·부스팅)은 스케일링이 필요 없으므로 전처리만 끝났다면 파이프라인 없이 쓰는 것이 가장 간단합니다.
+
+> 주의: 파이프라인 없이 쓸 때 파라미터 이름에 `model__` 같은 접두사를 붙이면 `ValueError: Invalid parameter 'model' for estimator` 가 납니다. 반대로 Pipeline 에 접두사 없이 `max_depth` 를 넣어도 같은 오류가 납니다. **GridSearchCV 에 넣은 것이 무엇인지** 에 맞춰 이름을 씁니다.
+
 ## 2.5 RandomizedSearchCV: 조합이 많을 때
 
 GridSearch 는 조합이 곱으로 늘어납니다 (5개 파라미터 × 5개 후보 = 3,125 조합). **RandomizedSearchCV** 는 범위에서 **정해진 횟수(`n_iter`)만 무작위로** 뽑아 시도합니다. 같은 시간에 더 넓은 범위를 탐색할 수 있습니다.
@@ -721,6 +810,7 @@ md(r"""
 
 - "5-fold 교차검증으로 정확도 평균을 출력" → `cross_val_score(model, X, y, cv=5).mean()`
 - "`GridSearchCV` 로 `max_depth` 와 `n_estimators` 를 튜닝하고 최적 파라미터 출력" → `best_params_`, `best_score_`, `best_estimator_`
+- 전처리가 끝난 `X_train` 이 주어지면 `GridSearchCV(RandomForestClassifier(random_state=42), {"max_depth": [...]}, cv=5)` 처럼 **모델을 그대로** 넣는다 (파라미터 이름 접두사 없음)
 - 회귀 `scoring` 은 `neg_` 가 붙고 음수로 나온다
 - `class_weight="balanced"`
 

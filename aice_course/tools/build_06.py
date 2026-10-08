@@ -78,7 +78,7 @@ code(LOAD_DATA_CELL)
 md(r"""
 ### 0.1 전처리 (5회차와 동일한 규칙)
 
-오늘의 주인공은 모델이므로 전처리는 5회차 함수를 그대로 씁니다. 트리 모델은 **스케일링이 필요 없어서** 분할까지만 합니다. (1.6 에서 직접 확인)
+오늘의 주인공은 모델이므로 전처리는 5회차 함수를 그대로 씁니다. 트리 모델은 **스케일링이 필요 없어서** 분할까지만 합니다. (1.7 에서 직접 확인)
 """)
 code(r"""
 from sklearn.model_selection import train_test_split
@@ -297,7 +297,197 @@ eval_clf("결정트리 (depth=4)", tree)
 """)
 
 md(r"""
-### 1.4 트리 그림으로 해석하기
+### 1.4 혼동행렬: 모델이 **어떻게** 맞히고 틀렸나
+
+#### 한 줄 정의
+**혼동행렬 (confusion matrix)**: 실제 정답과 모델의 예측을 짝지어 **네 칸에 몇 명씩 들어가는지** 센 표.
+
+#### 왜 필요한가
+정확도 0.80 은 "179명 중 약 36명을 틀렸다" 는 것만 알려 줍니다. 그런데 틀린 36명이 어떤 사람인지가 중요합니다.
+
+- **살아남은 사람을 죽었다고** 틀린 것인가?
+- **죽은 사람을 살았다고** 틀린 것인가?
+
+구조대라면 앞쪽(생존자를 놓침)이 훨씬 치명적입니다. 혼동행렬은 이 두 종류의 실수를 **따로** 세어 보여 줍니다.
+
+#### 표의 모양 (scikit-learn 기준)
+
+|  | **예측: 사망(0)** | **예측: 생존(1)** |
+|------|:---:|:---:|
+| **실제: 사망(0)** | **TN** (맞음) | **FP** (틀림) |
+| **실제: 생존(1)** | **FN** (틀림) | **TP** (맞음) |
+
+> **가장 먼저 외울 것: 행(가로줄) = 실제, 열(세로줄) = 예측.**  
+> 책·블로그마다 행과 열을 반대로 그리는 경우가 있어서 헷갈리는 원인이 됩니다. scikit-learn 의 `confusion_matrix` 와 `ConfusionMatrixDisplay` 는 **항상 행 = 실제, 열 = 예측** 입니다. 그래프에서는 **왼쪽 축이 실제, 아래 축이 예측** 입니다.
+
+- **대각선(↘, TN·TP)** 은 맞힌 칸, **대각선 밖(FP·FN)** 은 틀린 칸입니다. 좋은 모델일수록 대각선에 숫자가 몰립니다.
+- 여기서 **양성(Positive) = 생존(1)** 입니다. 보통 "관심 있는 쪽", "찾고 싶은 쪽" 을 1 로 둡니다 (암 환자, 이탈 고객, 스팸).
+
+#### TP · FP · FN · TN 이름 해독법 (가장 헷갈리는 부분)
+
+두 글자를 **뒤에서부터** 읽습니다.
+
+| 순서 | 글자 | 뜻 |
+|:---:|------|------|
+| ① **뒤 글자** | **P** 또는 **N** | **모델이 뭐라고 말했나** (P = 생존이라고 예측, N = 사망이라고 예측) |
+| ② **앞 글자** | **T** 또는 **F** | **모델의 그 말이 맞았나** (T = 맞음, F = 틀림) |
+
+| 이름 | ① 모델의 말 | ② 맞았나 | 그러므로 실제는 | 타이타닉에서 |
+|:---:|------|:---:|------|------|
+| **TP** | 생존이다 | 맞음 | 생존 | 생존자를 생존이라고 맞힘 |
+| **FP** | 생존이다 | **틀림** | **사망** | 사망자를 생존이라고 잘못 말함 (**거짓 경보**) |
+| **FN** | 사망이다 | **틀림** | **생존** | 생존자를 사망이라고 잘못 말함 (**놓침**) |
+| **TN** | 사망이다 | 맞음 | 사망 | 사망자를 사망이라고 맞힘 |
+
+> 주의: FP 의 P 는 "실제로 Positive" 가 아니라 **"모델이 Positive 라고 말했다"** 입니다. 실제는 그 반대(Negative)라서 False 가 붙었습니다. 이것만 기억하면 네 칸을 다시는 헷갈리지 않습니다.
+
+#### 비유: 화재경보기 (양성 = 불이 남)
+
+| | 경보 안 울림 (예측 N) | 경보 울림 (예측 P) |
+|------|:---:|:---:|
+| **불 안 남 (실제 N)** | **TN**: 조용한 평소 | **FP**: 헛경보. 시끄럽지만 아무도 안 다침 |
+| **불 남 (실제 P)** | **FN**: 불이 났는데 조용함. **가장 위험** | **TP**: 제대로 울림 |
+
+FP 와 FN 중 무엇이 더 나쁜지는 **문제마다 다릅니다.** 화재·암 진단은 FN(놓침)이, 스팸 필터는 FP(정상 메일을 스팸으로)가 더 나쁩니다. 이 판단이 5회차의 "재현율을 볼까, 정밀도를 볼까" 와 같은 질문입니다.
+
+#### 그림으로 그려 보기
+
+아래 함수는 혼동행렬을 그리면서 **맞은 칸은 초록, 틀린 칸은 빨강** 으로 칠하고, 칸마다 이름(TN/FP/FN/TP)과 뜻을 함께 적습니다. 결과를 문장으로도 풀어 줍니다. 랜덤포레스트·그라디언트부스팅에서도 같은 함수를 씁니다.
+""")
+code(r"""
+from sklearn.metrics import confusion_matrix
+
+CELL_NAMES = np.array([["TN", "FP"], ["FN", "TP"]])
+CELL_DESC = np.array([
+  ["사망 -> 사망\n(맞음)", "사망 -> 생존\n(거짓 경보)"],
+  ["생존 -> 사망\n(놓침)", "생존 -> 생존\n(맞음)"],
+])
+
+
+def plot_confusion(model, title: str, X_te=None, ax=None, explain: bool = True) -> dict:
+  # 타이타닉 test 데이터의 혼동행렬을 그린다. 맞은 칸(대각선)은 초록, 틀린 칸은 빨강.
+  X_te = Xc_test if X_te is None else X_te
+  pred = model.predict(X_te)
+  cm = confusion_matrix(yc_test, pred)            # 인자 순서: (실제, 예측) -> 행 = 실제, 열 = 예측
+  tn, fp, fn, tp = cm.ravel()                     # ravel 순서는 항상 TN, FP, FN, TP
+
+  annot = np.array([[f"{CELL_NAMES[i, j]} = {cm[i, j]}\n{CELL_DESC[i, j]}" for j in range(2)] for i in range(2)])
+  correct = np.eye(2, dtype=bool)
+  own_figure = ax is None
+  if own_figure:
+    fig, ax = plt.subplots(figsize=(5.4, 4.4))
+  common = dict(annot=annot, fmt="", cbar=False, ax=ax, linewidths=1, linecolor="white",
+                vmin=0, vmax=cm.max(), annot_kws={"fontsize": 9})
+  sns.heatmap(cm, mask=~correct, cmap="Greens", **common)     # 대각선: 맞은 칸
+  sns.heatmap(cm, mask=correct, cmap="Reds", **common)        # 대각선 밖: 틀린 칸
+  ax.set_xticklabels(["예측: 사망(0)", "예측: 생존(1)"])
+  ax.set_yticklabels(["실제: 사망(0)", "실제: 생존(1)"], rotation=0)
+  ax.set_title(title)
+  if own_figure:
+    plt.show()
+
+  result = {
+    "모델": title, "TN": tn, "FP": fp, "FN": fn, "TP": tp,
+    "정확도": (tn + tp) / cm.sum(), "정밀도": tp / (tp + fp), "재현율": tp / (tp + fn),
+  }
+  if explain:
+    print(f"전체 {cm.sum()}명 중 {tn + tp}명을 맞힘 (대각선) -> 정확도 {result['정확도']:.3f}")
+    print(f"실제 생존자 {tp + fn}명 중 {tp}명을 찾아냄, {fn}명을 놓침 (아래 가로줄) -> 재현율 {result['재현율']:.3f}")
+    print(f"생존이라고 예측한 {tp + fp}명 중 {tp}명이 진짜 생존, {fp}명은 거짓 경보 (오른쪽 세로줄) -> 정밀도 {result['정밀도']:.3f}")
+  return result
+
+
+cm_tree = plot_confusion(tree, "결정트리 (depth=4)")
+""")
+md(r"""
+#### 혼동행렬에서 지표 읽기: 어느 줄을 보나
+
+| 지표 | 혼동행렬에서 보는 곳 | 계산 | 질문 |
+|------|------|------|------|
+| **정확도** | **대각선** 두 칸 / 전체 | (TN + TP) / 전체 | 전체 중 몇 명을 맞혔나 |
+| **재현율** (Recall) | **아래 가로줄** (실제 생존) | TP / (FN + TP) | **실제 생존자** 중 몇 명을 찾아냈나 |
+| **정밀도** (Precision) | **오른쪽 세로줄** (예측 생존) | TP / (FP + TP) | **생존이라고 말한 사람** 중 몇 명이 진짜인가 |
+| F1 | 재현율과 정밀도의 조화평균 | 2 × 정밀도 × 재현율 / (정밀도 + 재현율) | 둘의 균형 |
+
+> 팁: 외우는 법
+> - **재현율 = 실제 기준 = 가로줄(행).** "실제로 살아남은 사람들을 얼마나 다시 찾아냈나(재현)"
+> - **정밀도 = 예측 기준 = 세로줄(열).** "모델이 생존이라고 한 말을 얼마나 믿을 수 있나(정밀)"
+> - 두 지표의 **분자는 모두 TP** 이고, **분모만 다릅니다.** 재현율의 분모에는 FN(놓친 사람), 정밀도의 분모에는 FP(거짓 경보)가 들어갑니다.
+""")
+code(r"""
+# 재현율은 가로줄, 정밀도는 세로줄을 본다는 것을 그림으로 확인
+import matplotlib.patches as patches
+
+cm_t = confusion_matrix(yc_test, tree.predict(Xc_test))
+fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
+for ax, (title, rect) in zip(axes, [
+  ("재현율: 실제 생존(아래 가로줄) 중 TP", (0, 1, 2, 1)),        # (x, y, 너비, 높이)
+  ("정밀도: 예측 생존(오른쪽 세로줄) 중 TP", (1, 0, 1, 2)),
+]):
+  annot = np.array([[f"{CELL_NAMES[i, j]}\n{cm_t[i, j]}" for j in range(2)] for i in range(2)])
+  sns.heatmap(cm_t, annot=annot, fmt="", cmap="Greys", cbar=False, ax=ax, alpha=0.35, annot_kws={"fontsize": 12})
+  ax.add_patch(patches.Rectangle(rect[:2], rect[2], rect[3], fill=False, edgecolor="red", linewidth=4))
+  ax.set_xticklabels(["예측: 사망(0)", "예측: 생존(1)"])
+  ax.set_yticklabels(["실제: 사망(0)", "실제: 생존(1)"], rotation=0)
+  ax.set_title(title)
+plt.tight_layout()
+plt.show()
+
+tn, fp, fn, tp = cm_t.ravel()
+print(f"재현율 = TP / (FN + TP) = {tp} / ({fn} + {tp}) = {tp / (fn + tp):.3f}")
+print(f"정밀도 = TP / (FP + TP) = {tp} / ({fp} + {tp}) = {tp / (fp + tp):.3f}")
+""")
+md(r"""
+#### 비율로 보기: `normalize="true"`
+
+`confusion_matrix(..., normalize="true")` 는 **각 가로줄(실제 클래스)의 합이 1** 이 되도록 나눕니다. 그러면 대각선 값이 **클래스별 재현율** 이 됩니다. 클래스 인원이 서로 다를 때(사망 110명, 생존 69명) 비교하기 좋습니다.
+""")
+code(r"""
+cm_ratio = confusion_matrix(yc_test, tree.predict(Xc_test), normalize="true")
+print(pd.DataFrame(cm_ratio, index=["실제: 사망(0)", "실제: 생존(1)"], columns=["예측: 사망(0)", "예측: 생존(1)"]).round(3))
+print(f"\n-> 사망자 중 {cm_ratio[0, 0]:.0%} 를 사망으로 맞힘, 생존자 중 {cm_ratio[1, 1]:.0%} 를 생존으로 맞힘(= 생존 재현율)")
+""")
+md(r"""
+#### ⚠️ 혼동행렬에서 자주 하는 실수
+
+| 실수 | 결과 | 올바른 방법 |
+|------|------|------|
+| `confusion_matrix(y_pred, y_test)` 처럼 **순서를 바꿈** | 표가 뒤집혀(전치) **FP 와 FN 이 서로 바뀜**. 재현율·정밀도도 뒤바뀜 | 항상 **(실제, 예측)** 순서: `confusion_matrix(y_test, y_pred)` |
+| `tp, fp, fn, tn = cm.ravel()` | 이름과 값이 엉뚱하게 짝지어짐 | ravel 순서는 **TN, FP, FN, TP** (표를 왼쪽 위부터 가로로 읽은 순서) |
+| 양성이 무엇인지 확인 안 함 | 라벨이 문자열이면 알파벳 순서로 0, 1 이 정해져 의도와 반대가 될 수 있음 | `labels=[0, 1]` 로 순서를 명시하거나 y 를 0/1 로 바꿔 둔다 |
+| 다른 자료의 그림과 비교 | 행·열 배치가 반대인 자료가 있음 | 축 이름(실제/예측)을 먼저 확인 |
+""")
+code(r"""
+# 인자 순서를 바꾸면 무슨 일이 생기나: FP 와 FN 칸이 서로 바뀐다
+right = confusion_matrix(yc_test, tree.predict(Xc_test))
+wrong = confusion_matrix(tree.predict(Xc_test), yc_test)
+print("올바른 순서 (y_test, y_pred):\n", right, f"\n  -> FP={right[0, 1]}, FN={right[1, 0]}")
+print("잘못된 순서 (y_pred, y_test):\n", wrong, f"\n  -> FP 자리={wrong[0, 1]}, FN 자리={wrong[1, 0]}  (서로 바뀜!)")
+""")
+md(r"""
+#### 확인 문제
+
+어떤 모델의 혼동행렬이 아래와 같습니다 (행 = 실제, 열 = 예측, 양성 = 생존).
+
+|  | 예측: 사망 | 예측: 생존 |
+|------|:---:|:---:|
+| 실제: 사망 | 95 | 15 |
+| 실제: 생존 | 25 | 44 |
+
+1. FP 와 FN 은 각각 몇 명이고, 무슨 뜻인가?
+2. 정확도, 재현율, 정밀도는?
+
+<details>
+<summary>정답 보기</summary>
+
+1. **FP = 15**: 실제로는 사망했는데 생존이라고 예측한 사람 (거짓 경보). **FN = 25**: 실제로는 생존했는데 사망이라고 예측한 사람 (놓침).
+2. 정확도 = (95 + 44) / 179 = **0.777**, 재현율 = 44 / (25 + 44) = **0.638**, 정밀도 = 44 / (15 + 44) = **0.746**
+
+</details>
+""")
+
+md(r"""
+### 1.5 트리 그림으로 해석하기
 """)
 code(r"""
 fig, ax = plt.subplots(figsize=(22, 9))
@@ -327,7 +517,7 @@ print(export_text(tree, feature_names=Xc_train.columns.tolist(), max_depth=2))
 """)
 
 md(r"""
-### 1.5 변수 중요도 `feature_importances_`
+### 1.6 변수 중요도 `feature_importances_`
 
 각 변수가 질문으로 쓰이며 **불순도를 줄인 양의 합** 을 전체 1 로 정규화한 값입니다. 트리·랜덤포레스트·부스팅 모두 같은 속성을 가집니다.
 """)
@@ -346,7 +536,7 @@ plot_importance(tree, Xc_train.columns, "결정트리 변수 중요도")
 md(r"""
 > **주의**: 중요도는 "얼마나 자주·효과적으로 질문에 쓰였나" 이지 **방향(생존에 유리/불리)** 은 알려 주지 않습니다. 방향은 트리 그림이나 3회차식 EDA 로 확인합니다. 또 서로 비슷한 변수(가족수와 동반형제배우자)가 있으면 중요도가 나뉘어 각각 낮게 나올 수 있습니다.
 
-### 1.6 트리는 스케일링이 필요 없다
+### 1.7 트리는 스케일링이 필요 없다
 """)
 code(r"""
 scaled = make_pipeline(StandardScaler(), DecisionTreeClassifier(max_depth=4, min_samples_leaf=5, random_state=RANDOM_STATE))
@@ -357,7 +547,7 @@ print("-> 트리는 '나이 <= 6.5' 처럼 값의 순서로만 자르므로, 단
 """)
 
 md(r"""
-### 1.7 회귀 트리 (캘리포니아 주택)
+### 1.8 회귀 트리 (캘리포니아 주택)
 
 회귀 트리는 잎에 모인 데이터의 **평균** 을 예측값으로 냅니다. 불순도 대신 **MSE(분산)** 를 가장 많이 줄이는 질문을 고릅니다. 그래서 예측이 **계단 모양** 이 됩니다.
 """)
@@ -398,6 +588,8 @@ md(r"""
 - "변수 중요도를 내림차순 출력" → `pd.Series(model.feature_importances_, index=X_train.columns).sort_values(ascending=False)`
 - "train/test 정확도를 비교하여 과적합 여부 판단" → 둘 다 출력
 - 회귀는 `DecisionTreeRegressor`
+- "혼동행렬을 출력하시오" → `confusion_matrix(y_test, y_pred)`, 그림은 `ConfusionMatrixDisplay.from_predictions(y_test, y_pred)`
+- "FN 은 몇 개인가" → `tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()`
 
 ### ⚠️ 자주 하는 실수 (1장)
 
@@ -537,6 +729,15 @@ rf_tuned = RandomForestClassifier(
   random_state=RANDOM_STATE, n_jobs=-1,
 ).fit(Xc_train, yc_train)
 eval_clf("랜덤포레스트 (OOB 로 조정)", rf_tuned)
+""")
+md(r"""
+#### 랜덤포레스트의 혼동행렬
+
+1.4 의 결정트리와 같은 함수로 그립니다. **빨간 두 칸(FP, FN)이 결정트리보다 어떻게 달라졌는지** 보세요.
+""")
+code(r"""
+cm_rf = plot_confusion(rf_tuned, "랜덤포레스트 (OOB 로 조정)")
+print(f"\n결정트리 대비: FP {cm_tree['FP']} -> {cm_rf['FP']}, FN {cm_tree['FN']} -> {cm_rf['FN']}")
 """)
 code(r"""
 # 트리 개수에 따른 OOB 점수: 어느 수준을 넘으면 거의 변하지 않는다
@@ -683,6 +884,14 @@ eval_clf("그라디언트부스팅 (lr=0.05, subsample=0.8)", gb_tuned)
 plot_importance(gb_tuned, Xc_train.columns, "그라디언트부스팅 변수 중요도 (타이타닉)")
 """)
 md(r"""
+#### 그라디언트부스팅의 혼동행렬
+""")
+code(r"""
+cm_gb = plot_confusion(gb_tuned, "그라디언트부스팅 (lr=0.05)")
+print(f"\n결정트리 대비  : FP {cm_tree['FP']} -> {cm_gb['FP']}, FN {cm_tree['FN']} -> {cm_gb['FN']}")
+print(f"랜덤포레스트 대비: FP {cm_rf['FP']} -> {cm_gb['FP']}, FN {cm_rf['FN']} -> {cm_gb['FN']}")
+""")
+md(r"""
 ### 4.3 회귀: 캘리포니아 주택
 """)
 code(r"""
@@ -780,6 +989,39 @@ md(r"""
 - test 가 179명이라 **정확도 0.01 = 약 2명** 차이입니다. 작은 차이로 순위를 단정하지 마세요. 확률 기반이라 덜 흔들리는 **AUC** 와 **과적합 정도** 를 함께 봅니다.
 - 제한 없는 결정트리는 과적합 정도가 가장 크고 AUC 도 가장 낮습니다. 같은 트리를 배깅으로 100개 묶으면 과적합 정도는 비슷해도 **test AUC 가 뚜렷이 오릅니다.** 트리를 제한한 랜덤포레스트·부스팅은 과적합 정도 자체도 줄어듭니다.
 - 891명짜리 작은 표 데이터에서는 잘 만든 로지스틱 회귀도 앙상블과 비슷하게 경쟁합니다. **데이터가 작고 관계가 단순하면 단순한 모델이 충분** 할 수 있습니다.
+
+#### 혼동행렬로 나란히 비교
+
+같은 정확도라도 **어떤 실수를 더 많이 하는지** 는 모델마다 다릅니다.
+""")
+code(r"""
+models_cm = [
+  (base_clf, "로지스틱 회귀 (5회차)"),
+  (tree, "결정트리 (depth=4)"),
+  (rf_tuned, "랜덤포레스트"),
+  (gb_tuned, "그라디언트부스팅"),
+]
+fig, axes = plt.subplots(1, 4, figsize=(22, 4.6))
+cm_rows = [plot_confusion(m, name, ax=ax, explain=False) for (m, name), ax in zip(models_cm, axes)]
+plt.tight_layout()
+plt.show()
+
+cm_compare = pd.DataFrame(cm_rows).set_index("모델")
+cm_compare[["정확도", "정밀도", "재현율"]] = cm_compare[["정확도", "정밀도", "재현율"]].round(3)
+cm_compare
+""")
+code(r"""
+fewest_fn = cm_compare["FN"].idxmin()
+fewest_fp = cm_compare["FP"].idxmin()
+print(f"생존자를 가장 적게 놓친 모델 (FN 최소, 재현율 최고): {fewest_fn} -> FN {cm_compare.loc[fewest_fn, 'FN']}명")
+print(f"거짓 경보가 가장 적은 모델 (FP 최소, 정밀도 최고)  : {fewest_fp} -> FP {cm_compare.loc[fewest_fp, 'FP']}명")
+""")
+md(r"""
+**읽는 법**
+
+- 네 모델 모두 **FN(아래 왼쪽 빨간 칸)이 FP(위 오른쪽 빨간 칸)보다 많습니다.** 생존자를 사망으로 놓치는 실수가 더 흔하다는 뜻입니다. 데이터에 사망자가 더 많아서(62%) 모델이 애매하면 "사망" 쪽으로 기울기 때문입니다.
+- 놓치는 생존자를 줄이고 싶다면(구조 우선순위 등) **FN 이 가장 작은 모델** 을 고르거나, 5회차처럼 **임계값을 0.5 보다 낮춰** FN 을 FP 로 바꿀 수 있습니다.
+- 정확도가 같은 두 모델이라도 FN 과 FP 의 비율이 다르면 쓰임새가 달라집니다. 그래서 분류 결과는 **정확도 숫자 하나가 아니라 혼동행렬을 함께** 봅니다.
 
 ### 5.2 회귀 (캘리포니아 주택, test 3,400구역)
 """)

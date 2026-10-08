@@ -237,6 +237,8 @@ md(r"""
 |------|------|:---:|
 | 회귀 | MAE, MSE, RMSE | 작을수록 |
 | 회귀 | R² | 1 에 가까울수록 |
+
+> 회귀 지표(MAE, MSE, RMSE, R²)는 **2.3 절**, 분류 지표(정확도, 정밀도, 재현율, F1, AUC)는 **3.3 절** 에서 예제와 함께 자세히 설명합니다.
 | 분류 | 정확도, 정밀도, 재현율, F1, ROC-AUC | 1 에 가까울수록 |
 
 ### 📝 시험 출제 포인트 (1장)
@@ -327,19 +329,193 @@ plt.show()
 """)
 
 md(r"""
-### 2.3 회귀 평가지표
+### 2.3 회귀 평가지표: MAE, MSE, RMSE, R²
 
-| 지표 | 계산 | 직관 | 단위 | 특징 |
-|------|------|------|:---:|------|
-| **MAE** (평균절대오차) | 평균(\|실제 − 예측\|) | "평균적으로 얼마나 빗나갔나" | 타깃과 같음 | 해석 쉬움, 이상치에 둔감 |
-| **MSE** (평균제곱오차) | 평균((실제 − 예측)²) | 큰 오차를 더 크게 벌함 | 타깃² | 학습 시 최소화하는 값 |
-| **RMSE** | √MSE | MSE 를 원래 단위로 | 타깃과 같음 | **가장 많이 보고되는 지표** |
-| **R²** (결정계수) | 1 − (모델 오차합 / 평균으로 예측한 오차합) | "평균만 찍는 것보다 얼마나 낫나" | 없음 | 1 이 최고, 0 이면 평균과 동급, 음수도 가능 |
+모델이 예측한 숫자가 **실제와 얼마나 가까운지** 를 하나의 점수로 바꾸는 방법입니다. 네 지표 모두 출발점은 같습니다. **"오차(실제 - 예측)"** 를 어떻게 모으느냐만 다릅니다.
 
-> R² = 0.5 는 "타깃의 변동 중 50% 를 모델이 설명한다" 로 읽습니다.
+#### 2.3.1 출발점: 오차 (error, 잔차 residual)
+
+```
+오차 = 실제값 - 예측값
+```
+
+- 오차가 **양수** 면 모델이 **작게** 예측한 것(과소 예측), **음수** 면 **크게** 예측한 것(과대 예측)입니다.
+- 오차를 그냥 더하면 +와 -가 서로 지워져서 "잘 맞혔다" 고 착각하게 됩니다. 그래서 **부호를 없애는 방법** 이 필요하고, 그 방법에 따라 지표가 갈립니다.
+
+| 부호를 없애는 방법 | 만들어지는 지표 |
+|------|------|
+| 절댓값을 씌운다 | **MAE** |
+| 제곱한다 | **MSE** → 제곱근을 씌우면 **RMSE** |
+| 제곱한 뒤 "평균만 찍었을 때" 와 비교한다 | **R²** |
+
+아래는 아파트 5채의 실제 가격과 모델 예측(단위: 억 원)입니다. 이 작은 예로 네 지표를 **손으로** 계산해 봅니다.
+""")
+code(r"""
+example = pd.DataFrame({
+  "실제(억)": [3.0, 2.5, 4.0, 3.5, 5.0],
+  "예측(억)": [2.8, 2.9, 3.6, 3.5, 4.2],
+}, index=["A아파트", "B아파트", "C아파트", "D아파트", "E아파트"])
+example["오차"] = example["실제(억)"] - example["예측(억)"]
+example["|오차|"] = example["오차"].abs()
+example["오차²"] = example["오차"] ** 2
+
+print("오차를 그냥 더하면:", round(example["오차"].sum(), 2), " <- 양수·음수가 일부 지워져 실제보다 작아 보인다")
+example.round(3)
+""")
+md(r"""
+#### 2.3.2 MAE (Mean Absolute Error, 평균 절대 오차)
+
+```
+MAE = 평균( |실제 - 예측| )
+```
+
+- **뜻**: "평균적으로 **몇 억** 빗나갔나." 단위가 목표 변수와 같아서 **설명하기 가장 쉽습니다.**
+- **특징**: 1억 빗나간 것은 0.5억 빗나간 것의 정확히 2배로 계산합니다. 큰 오차를 특별히 더 벌주지 않습니다.
+- **좋은 값**: 0 에 가까울수록 좋음. 0 이면 완벽.
+
+#### 2.3.3 MSE (Mean Squared Error, 평균 제곱 오차)
+
+```
+MSE = 평균( (실제 - 예측)² )
+```
+
+- **뜻**: 오차를 **제곱해서** 평균. 0.2억 오차는 0.04, 0.8억 오차는 0.64 가 되어 **큰 오차가 훨씬 크게** 반영됩니다.
+- **단점**: 단위가 "억²" 이라 숫자 자체를 해석하기 어렵습니다. 주택가격(달러)이면 수십억 단위의 큰 숫자가 나옵니다.
+- **쓰임**: 선형회귀가 **학습할 때 최소화하는 값** 이 바로 이것입니다 (최소제곱법).
+
+#### 2.3.4 RMSE (Root Mean Squared Error, 평균 제곱근 오차)
+
+```
+RMSE = √MSE
+```
+
+- **뜻**: MSE 에 제곱근을 씌워 **단위를 원래대로(억)** 되돌린 값. "대략 이 정도 빗나간다" 로 읽습니다.
+- **특징**: 단위는 MAE 와 같지만, 큰 오차를 더 무겁게 본 결과라 **항상 MAE 보다 크거나 같습니다.**
+- 회귀 모델 성능을 보고할 때 **가장 많이 쓰이는 지표** 입니다.
 """)
 code(r"""
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+y_true_ex = example["실제(억)"]
+y_pred_ex = example["예측(억)"]
+
+mae_hand = example["|오차|"].mean()
+mse_hand = example["오차²"].mean()
+rmse_hand = np.sqrt(mse_hand)
+
+print(f"MAE  손계산 {mae_hand:.4f} | sklearn {mean_absolute_error(y_true_ex, y_pred_ex):.4f}  (단위: 억)")
+print(f"MSE  손계산 {mse_hand:.4f} | sklearn {mean_squared_error(y_true_ex, y_pred_ex):.4f}  (단위: 억², 해석 어려움)")
+print(f"RMSE 손계산 {rmse_hand:.4f} | sklearn {np.sqrt(mean_squared_error(y_true_ex, y_pred_ex)):.4f}  (단위: 억)")
+print("-> RMSE 가 MAE 보다 큰 이유: E아파트의 0.8억 오차가 제곱되어 크게 반영됐기 때문")
+""")
+md(r"""
+#### 2.3.5 MAE 와 RMSE 는 언제 다르게 말하나
+
+두 모델이 5채를 예측했습니다.
+
+- **모델 A**: 5채 모두 **1억씩** 빗나감 (꾸준히 조금씩 틀림)
+- **모델 B**: 4채는 **정확히** 맞히고 1채만 **5억** 빗나감 (가끔 크게 틀림)
+""")
+code(r"""
+actual = np.array([3.0, 2.5, 4.0, 3.5, 5.0])
+pred_a = actual + np.array([1, -1, 1, -1, 1])        # 모두 1억씩 오차
+pred_b = actual + np.array([0, 0, 0, 0, 5])          # 한 채만 5억 오차
+
+pd.DataFrame({
+  "MAE": [mean_absolute_error(actual, pred_a), mean_absolute_error(actual, pred_b)],
+  "RMSE": [np.sqrt(mean_squared_error(actual, pred_a)), np.sqrt(mean_squared_error(actual, pred_b))],
+}, index=["모델 A (모두 1억씩)", "모델 B (한 채만 5억)"]).round(3)
+""")
+md(r"""
+- **MAE 는 둘을 똑같이(1.0) 평가** 합니다. 총 빗나간 양이 같기 때문입니다.
+- **RMSE 는 모델 B 를 2배 이상 나쁘게** 평가합니다. 한 번의 큰 실수를 무겁게 보기 때문입니다.
+
+| 이런 상황이라면 | 볼 지표 |
+|------|------|
+| 한 번의 큰 실수가 치명적 (재고 예측, 대출 한도) | **RMSE** |
+| 데이터에 이상치가 많아 몇 개에 휘둘리고 싶지 않음 | **MAE** |
+| 결과를 비전공자에게 설명해야 함 ("평균 3천만 원 정도 틀린다") | **MAE** |
+
+#### 2.3.6 R² (결정계수, R-squared)
+
+MAE·RMSE 는 "몇 억 틀렸나" 를 말하지만, **그게 잘한 건지 못한 건지** 는 알려 주지 않습니다. 1억 오차는 10억짜리 집에선 작고 2억짜리 집에선 큽니다. R² 는 **가장 단순한 예측(모두에게 평균값을 찍기)과 비교** 해서 점수를 매깁니다.
+
+```
+              모델의 오차² 합            ← 모델이 남긴 오차
+R² = 1 -  ───────────────────────
+           평균으로 찍었을 때의 오차² 합   ← 아무 정보 없이 평균만 썼을 때의 오차
+```
+
+| R² 값 | 뜻 |
+|:---:|------|
+| **1** | 완벽한 예측 (오차 0) |
+| **0.7** | 평균만 찍을 때의 오차를 **70% 줄였다** = "가격 변동의 70% 를 설명한다" |
+| **0** | 평균만 찍는 것과 같은 수준 (모델이 쓸모없음) |
+| **음수** | **평균만 찍는 것보다도 못함** (무언가 잘못됨) |
+
+- **단위가 없어서** 서로 다른 데이터(집값, 키, 매출)의 모델도 같은 기준으로 비교할 수 있습니다.
+- 선형회귀의 `model.score(X, y)` 가 돌려주는 값이 바로 R² 입니다.
+""")
+code(r"""
+# R² 를 그림으로: 왼쪽 = 평균만 찍었을 때의 오차, 오른쪽 = 모델의 오차
+mean_line = y_true_ex.mean()
+sst = ((y_true_ex - mean_line) ** 2).sum()          # 평균으로 찍었을 때의 오차² 합
+sse = ((y_true_ex - y_pred_ex) ** 2).sum()          # 모델의 오차² 합
+
+xs = np.arange(len(y_true_ex))
+fig, axes = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
+axes[0].scatter(xs, y_true_ex, color="black", zorder=3, label="실제")
+axes[0].axhline(mean_line, color="gray", linestyle="--", label=f"평균 {mean_line:.1f}억")
+axes[0].vlines(xs, mean_line, y_true_ex, color="indianred", linewidth=3, label="오차")
+axes[0].set_title(f"평균만 찍었을 때: 오차² 합 = {sst:.2f}")
+
+axes[1].scatter(xs, y_true_ex, color="black", zorder=3, label="실제")
+axes[1].scatter(xs, y_pred_ex, color="tab:blue", marker="x", s=80, zorder=3, label="모델 예측")
+axes[1].vlines(xs, y_pred_ex, y_true_ex, color="indianred", linewidth=3, label="오차")
+axes[1].set_title(f"모델: 오차² 합 = {sse:.2f}")
+
+for ax in axes:
+  ax.set_xticks(xs, labels=example.index)
+  ax.legend(fontsize=8)
+axes[0].set_ylabel("가격 (억)")
+plt.tight_layout()
+plt.show()
+
+print(f"R² = 1 - {sse:.2f} / {sst:.2f} = {1 - sse / sst:.4f}")
+print(f"sklearn r2_score = {r2_score(y_true_ex, y_pred_ex):.4f}")
+print(f"-> 평균만 찍을 때의 오차를 약 {(1 - sse / sst) * 100:.0f}% 줄였다")
+""")
+md(r"""
+빨간 막대(오차)가 오른쪽에서 훨씬 짧아졌습니다. R² 는 **"빨간 막대를 얼마나 줄였나"** 를 0~1 사이 비율로 나타낸 것입니다.
+
+#### 2.3.7 한눈에 비교
+
+| 지표 | 한 줄 뜻 | 단위 | 좋은 값 | 큰 오차에 | 이럴 때 쓴다 |
+|------|------|:---:|:---:|:---:|------|
+| **MAE** | 평균적으로 얼마나 빗나갔나 | 목표와 같음 | 0 에 가까울수록 | 보통 | 설명이 쉬워야 할 때, 이상치가 많을 때 |
+| **MSE** | 오차 제곱의 평균 | 목표² | 0 에 가까울수록 | 매우 민감 | 모델 학습 내부 (보고용으로는 잘 안 씀) |
+| **RMSE** | MSE 를 원래 단위로 | 목표와 같음 | 0 에 가까울수록 | 민감 | **가장 일반적인 보고 지표**, 큰 실수가 치명적일 때 |
+| **R²** | 평균 대비 오차를 몇 % 줄였나 | 없음 | 1 에 가까울수록 | 민감 | 모델이 **쓸모 있는지** 판단, 다른 데이터 간 비교 |
+
+> 실무와 시험에서는 보통 **RMSE(얼마나 틀리나) + R²(얼마나 설명하나)** 를 함께 적습니다. 하나는 크기, 하나는 비율이라 서로 보완합니다.
+
+#### 2.3.8 scikit-learn 함수
+
+| 지표 | 함수 | 비고 |
+|------|------|------|
+| MAE | `mean_absolute_error(y_true, y_pred)` | |
+| MSE | `mean_squared_error(y_true, y_pred)` | |
+| RMSE | `np.sqrt(mean_squared_error(y_true, y_pred))` | 어느 버전에서나 동작 (가장 안전) |
+| RMSE | `root_mean_squared_error(y_true, y_pred)` | scikit-learn 1.4 이상 |
+| R² | `r2_score(y_true, y_pred)` 또는 `model.score(X, y)` | |
+
+> 인자 순서는 항상 **(실제값, 예측값)** 입니다. MAE·MSE·RMSE 는 순서를 바꿔도 값이 같지만 **R² 는 달라지므로** 습관을 들여야 합니다.
+
+#### 2.3.9 실제 모델에 적용하기
+
+이제 위 단순 선형회귀(소득중앙값 → 주택가격)를 네 지표로 평가합니다. 단위는 **달러** 입니다.
+""")
+code(r"""
 
 
 def regression_report(y_true, y_pred, name: str = "") -> dict:
@@ -355,6 +531,9 @@ def regression_report(y_true, y_pred, name: str = "") -> dict:
 
 results = [regression_report(y_test, y_pred, "단순회귀(소득)")]
 pd.DataFrame(results)
+""")
+md(r"""
+**읽는 법**: MAE 가 약 6만 2천 달러, RMSE 가 약 8만 3천 달러입니다. "이 모델은 구역 주택가격을 평균 6만 달러 정도 틀리고, 큰 오차까지 감안하면 8만 달러 정도 틀린다" 로 읽습니다. RMSE 가 MAE 보다 꽤 크므로 **가끔 크게 빗나가는 구역이 있다** 는 뜻이기도 합니다. R² 약 0.5 는 "평균만 찍었을 때의 오차를 절반 정도 줄였다" 입니다. MSE 는 수십억 단위라 해석에 쓰지 않습니다.
 """)
 code(r"""
 # 지표의 의미를 손으로 확인: 평균으로만 예측하면 R² 가 0 이 된다

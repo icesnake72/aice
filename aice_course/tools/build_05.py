@@ -171,7 +171,108 @@ from sklearn.ensemble import RandomForestClassifier      # 6회차
 """)
 
 md(r"""
-### 1.3 과적합과 과소적합
+### 1.3 `make_pipeline`: 여러 단계를 하나의 모델로 묶기
+
+#### 한 줄 정의
+**`make_pipeline`**: 전처리 단계와 모델을 **순서대로 이어 붙여 하나의 모델처럼** 쓰게 해 주는 함수. 새로운 계산을 하는 것이 아니라, 원래 하던 일을 묶어 주기만 합니다.
+
+#### 직관적 설명
+커피 머신과 같습니다. 원두 갈기 → 추출 → 우유 섞기를 사람이 따로 하면 순서를 빼먹거나 바꿀 수 있습니다. 머신에 담아 두면 **버튼 하나(`fit`, `predict`)로 항상 같은 순서** 가 실행됩니다.
+
+4회차에서는 스케일링과 학습을 직접 따로 했습니다.
+
+```python
+# 직접 하는 방식
+scaler = StandardScaler()
+X_train_s = scaler.fit_transform(X_train)          # ① train 으로 기준(평균·표준편차)을 정하고 변환
+X_test_s = scaler.transform(X_test)                # ② test 는 같은 기준으로 변환만
+model = LinearRegression().fit(X_train_s, y_train) # ③ 변환된 train 으로 학습
+model.score(X_test_s, y_test)                      # ④ 변환된 test 로 평가
+```
+
+`make_pipeline` 으로 묶으면 같은 일이 세 줄이 됩니다.
+
+```python
+# 파이프라인 방식
+pipe = make_pipeline(StandardScaler(), LinearRegression())   # "스케일링 -> 선형회귀" 순서로 묶음
+pipe.fit(X_train, y_train)                                   # 안에서 ① 과 ③ 을 차례로
+pipe.score(X_test, y_test)                                   # 안에서 ② 와 ④ 를 차례로
+```
+
+| 호출 | 파이프라인 안에서 일어나는 일 |
+|------|------|
+| `pipe.fit(X_train, y_train)` | 스케일러를 train 으로 `fit_transform` → 그 결과로 모델 `fit` |
+| `pipe.predict(X_test)` | 스케일러로 test 를 `transform` (**fit 은 안 함**) → 모델 `predict` |
+| `pipe.score(X_test, y_test)` | 위 predict 후 점수 계산 (회귀는 R²) |
+
+아래에서 두 방식의 결과가 **정확히 같은지** 직접 확인합니다.
+""")
+code(r"""
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.pipeline import make_pipeline
+
+X_demo = housing.drop(columns=["주택가격"])
+y_demo = housing["주택가격"]
+Xd_train, Xd_test, yd_train, yd_test = train_test_split(X_demo, y_demo, test_size=0.2, random_state=42)
+
+# 직접 하는 방식
+scaler = StandardScaler()
+Xd_train_s = scaler.fit_transform(Xd_train)
+Xd_test_s = scaler.transform(Xd_test)
+manual = LinearRegression().fit(Xd_train_s, yd_train)
+print("직접 하는 방식  test R²:", round(manual.score(Xd_test_s, yd_test), 6))
+
+# 파이프라인 방식
+pipe = make_pipeline(StandardScaler(), LinearRegression())
+pipe.fit(Xd_train, yd_train)                       # 원본 X 를 그대로 넣는다
+print("파이프라인 방식 test R²:", round(pipe.score(Xd_test, yd_test), 6))
+""")
+code(r"""
+# 파이프라인 안의 단계 확인: 이름은 클래스 이름을 소문자로 자동으로 붙인다
+print("단계 이름:", list(pipe.named_steps))
+print("스케일러가 기억한 평균(앞 3개):", pipe.named_steps["standardscaler"].mean_[:3].round(2))
+print("선형회귀 계수 개수:", pipe.named_steps["linearregression"].coef_.size)
+pipe
+""")
+md(r"""
+#### 왜 굳이 이렇게 하나
+
+**1. 실수를 구조적으로 막아 줍니다.** 직접 하는 방식에서 가장 흔한 실수는 test 변환을 잊는 것입니다. 실제로 해 보면 결과가 이렇게 망가집니다.
+""")
+code(r"""
+# 흔한 실수: 스케일링한 데이터로 학습해 놓고, test 는 원본 그대로 넣음
+print("test 변환을 잊었을 때 R²:", round(manual.score(Xd_test.values, yd_test), 2))   # 원본 값을 그대로 넣음
+print("-> 스케일링된 값(평균 0 근처)으로 배운 모델에 원래 크기(인구 수천 명 등)의 값이 들어가 예측이 완전히 틀어진다")
+""")
+md(r"""
+| 실수 | 결과 | 파이프라인에서는 |
+|------|------|------|
+| test 를 `transform` 하는 것을 잊음 | 위처럼 엉터리 예측 | `predict` 가 항상 자동으로 transform → **일어날 수 없음** |
+| test 에 `fit_transform` 을 씀 | test 의 통계가 섞이는 정보 누출 (4회차) | `predict` 에서는 fit 을 하지 않음 → **일어날 수 없음** |
+
+**2. 교차검증을 올바르게 할 수 있습니다.** (8회차) `cross_val_score(pipe, X_train, y_train, cv=5)` 를 하면 나눌 때마다 스케일러도 그 회차의 학습 조각으로만 새로 맞춰집니다.
+
+**3. 새 데이터에 바로 쓸 수 있습니다.** 새 구역 데이터가 오면 `pipe.predict(새 데이터)` 한 줄이면 됩니다. 스케일러 객체를 따로 챙길 필요가 없습니다.
+
+**4. 전처리도 튜닝 대상에 넣을 수 있습니다.** (8회차) GridSearchCV 에서 `"단계이름__파라미터"` (밑줄 2개)로 지정합니다. 예: `linearregression__fit_intercept`
+
+#### 이 과정에서 쓰는 곳
+
+| 위치 | 코드 | 묶은 이유 |
+|------|------|------|
+| 5회차 1.4 과적합 실험 (바로 다음) | `make_pipeline(PolynomialFeatures(degree), LinearRegression())` | x 를 x, x², x³ … 로 늘리는 단계와 선형회귀를 묶어 **곡선 모델 하나** 처럼 사용 |
+| 6·7·8회차 기준선 | `make_pipeline(StandardScaler(), LinearRegression())` | 스케일러를 train 에만 맞추는 규칙을 자동으로 지키기 위해 |
+| 8회차 2.3 | `Pipeline([("prep", ColumnTransformer(...)), ("model", ...)])` | 결측 대체·원-핫·스케일링까지 전부 묶어 원본 데이터를 그대로 넣기 위해 |
+
+> 팁: `make_pipeline` 과 `Pipeline` 은 같은 것입니다. `make_pipeline` 은 단계 이름을 자동으로 붙여 주고(`standardscaler`), `Pipeline([("이름", 객체), ...])` 은 이름을 직접 정합니다.
+
+> 주의: 시험 문제가 `X_train_scaled` 처럼 **스케일링 결과 변수를 따로 요구** 하면 직접 하는 방식으로 써야 채점됩니다. 지정이 없을 때 파이프라인을 쓰세요.
+""")
+
+md(r"""
+### 1.4 과적합과 과소적합
 
 #### 한 줄 정의
 - **과소적합 (Underfitting)**: 모델이 너무 단순해서 **학습 데이터조차** 못 맞힘.
@@ -180,7 +281,7 @@ md(r"""
 #### 직관적 설명
 기출문제를 푸는 학생을 떠올리세요. 공식 하나만 외운 학생(과소적합)은 기출도 실전도 못 풉니다. 기출 답을 통째로 외운 학생(과적합)은 기출은 만점인데 실전에서 무너집니다. 원리를 이해한 학생(적정)이 실전에서도 잘 봅니다.
 
-아래 실험에서 **같은 데이터에 복잡도만 다른 세 모델** 을 맞춰 봅니다.
+아래 실험에서 **같은 데이터에 복잡도만 다른 세 모델** 을 맞춰 봅니다. 1.3 에서 배운 `make_pipeline` 으로 "x 를 x, x², x³ … 로 늘리는 단계(`PolynomialFeatures`)" 와 선형회귀를 묶어, 차수(degree)가 높을수록 더 구불구불한 곡선 모델을 만듭니다.
 """)
 code(r"""
 from sklearn.linear_model import LinearRegression
@@ -229,7 +330,7 @@ md(r"""
 """)
 
 md(r"""
-### 1.4 평가지표 미리보기
+### 1.5 평가지표 미리보기
 
 모델이 "잘 맞힌다" 를 **숫자 하나** 로 표현한 것이 평가지표입니다. 문제 유형에 따라 다르며, 각 절에서 코드와 함께 배웁니다.
 

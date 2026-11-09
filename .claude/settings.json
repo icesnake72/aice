@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "WebFetch(domain:claude.com)",
+      "Bash(python3 -c \"import json,sys; nb=json.load\\(sys.stdin\\); [print\\(f''''Cell {i}: id={c.get\\(\"\"id\"\",\"\"?\"\"\\)}, type={c[\"\"cell_type\"\"]}, src={c[\"\"source\"\"][0][:60] if c[\"\"source\"\"] else \"\"\\(empty\\)\"\"}''''\\) for i,c in enumerate\\(nb[''''cells'''']\\)]\")",
+      "Bash(python3 -c \"import json,sys; nb=json.load\\(sys.stdin\\); print\\(f''''총 셀 수: {len\\(nb[\"\"cells\"\"]\\)}''''\\); [print\\(f''''Cell {i}: id={c.get\\(\"\"id\"\",\"\"?\"\"\\)}, type={c[\"\"cell_type\"\"]}, src={\"\"''''.join\\(c[\"\"source\"\"]\\)[:80] if c[\"\"source\"\"] else \"\"\\(empty\\)\"\"}''''\\) for i,c in enumerate\\(nb[''''cells'''']\\)]\")"
+    ]
+  }
+}

@@ -1,39 +1,19 @@
-# macOS 시스템 파일
+# macOS
 .DS_Store
 
-# Python 캐시/바이트코드
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
+.venv/
+venv/
 
-# Jupyter Notebook 체크포인트
+# Jupyter
 .ipynb_checkpoints/
 
-# Python 가상환경
-venv/
-env/
-.venv/
-.env/
-
-# IDE 설정
+# IDE / agent state
 .vscode/
 .idea/
-
-# Claude Code 설정
-.claude/
-
-# 위성 원본 데이터 (AWS Open Data 에서 재다운로드 가능)
-resource/netcdf/
-*.nc
-
-# 편집기/에이전트 상태 파일
-.obsidian/
+.claude/settings.local.json
+.claude/worktrees/
 .omc/
-
-# 실행 결과 (그림·metrics.json 만 커밋하고 큰 산출물은 제외)
-results/cache/
-results/**/*.npz
-results/**/*.h5
-results/**/*.npy
-results/**/*.part
-results/logs/
+.superpowers/
